@@ -90,7 +90,7 @@
         .header-controls {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 16px;
         }
 
         .stop-btn {
@@ -578,10 +578,6 @@
         </svg>
     </button>
 
-    <path d="M12 5v14M19 12l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-    </button>
-
     <!-- Quick Actions -->
     <div class="quick-actions">
         <div class="action-chip" onclick="quickAction('Continue')">Continue</div>
@@ -839,7 +835,6 @@
         }
 
         // --- Inputs ---
-        // --- Inputs ---
         async function sendMessage() {
             const message = messageInput.value.trim();
             if (!message) return;
@@ -1035,46 +1030,55 @@
             window.visualViewport.addEventListener('resize', handleResize);
             window.visualViewport.addEventListener('scroll', handleResize);
             handleResize(); // Init
+        } else {
+            // Fallback for older browsers without visualViewport support
+            window.addEventListener('resize', () => {
+                document.body.style.height = window.innerHeight + 'px';
+            });
+            document.body.style.height = window.innerHeight + 'px'; // Init
         }
 
         // --- Remote Click Logic (Thinking/Thought) ---
         chatContainer.addEventListener('click', async (e) => {
             // Strategy: Check if the clicked element OR its parent contains "Thought" or "Thinking" text.
-            // This is more robust than looking for specific tags.
+            // This handles both opening (collapsed) and closing (expanded) states.
 
             // 1. Find the nearest container that might be the "Thought" block
-            const target = e.target.closest('div, span, p, summary, button');
+            const target = e.target.closest('div, span, p, summary, button, details');
             if (!target) return;
 
             const text = target.innerText || '';
 
-            // Check if this looks like a thought toggle
-            if (text.includes('Thought') || text.includes('Thinking')) {
-                // Determine what valid selector to capture.
-                // We'll capture ALL elements with this text on the screen to find the index.
-                const allEls = Array.from(chatContainer.querySelectorAll('*'));
+            // Check if this looks like a thought toggle (matches "Thought for Xs" or "Thinking" patterns)
+            // Also match the header of expanded thoughts which may have more content
+            const isThoughtToggle = /Thought|Thinking/i.test(text) && text.length < 500;
 
-                // Filter down to elements that have the same text
-                // Use a heuristic: exact text match or very close
-                const similarEls = allEls.filter(el =>
-                    el.innerText === text && el.tagName === target.tagName
-                );
+            if (isThoughtToggle) {
+                // Visual feedback - briefly dim the clicked element
+                target.style.opacity = '0.5';
+                setTimeout(() => target.style.opacity = '1', 300);
 
-                const index = similarEls.indexOf(target);
+                // Extract just the first line for matching (e.g., "Thought for 3s")
+                const firstLine = text.split('\n')[0].trim();
 
-                if (index !== -1) {
-                    try {
-                        fetch('/remote-click', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                selector: target.tagName.toLowerCase(), // Not used meaningfully by new logic but passed
-                                index: index,
-                                textContent: text // Vital: we search by THIS text on server
-                            })
-                        });
-                        setTimeout(loadSnapshot, 600);
-                    } catch (e) { }
+                try {
+                    const response = await fetch('/remote-click', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            selector: target.tagName.toLowerCase(),
+                            index: 0,  // Usually there's only one visible thought toggle
+                            textContent: firstLine  // Use first line for more reliable matching
+                        })
+                    });
+
+                    // Reload snapshot multiple times to catch the UI change
+                    // Desktop animation takes time, so we poll a few times
+                    setTimeout(loadSnapshot, 400);   // Quick check
+                    setTimeout(loadSnapshot, 800);   // After animation starts
+                    setTimeout(loadSnapshot, 1500);  // After animation completes
+                } catch (e) {
+                    console.error('Remote click failed:', e);
                 }
             }
         });

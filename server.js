@@ -2,6 +2,7 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import http from 'http';
+import os from 'os';
 import WebSocket from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -17,6 +18,20 @@ const POLL_INTERVAL = 1000; // 1 second
 let cdpConnection = null;
 let lastSnapshot = null;
 let lastSnapshotHash = null;
+
+// Get local IP address for mobile access
+function getLocalIP() {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            // Skip internal and non-IPv4 addresses
+            if (iface.family === 'IPv4' && !iface.internal) {
+                return iface.address;
+            }
+        }
+    }
+    return 'localhost';
+}
 
 // Helper: HTTP GET JSON
 function getJson(url) {
@@ -55,28 +70,45 @@ async function connectCDP(url) {
     });
 
     let idCounter = 1;
-    const call = (method, params) => new Promise((resolve, reject) => {
-        const id = idCounter++;
-        const handler = (msg) => {
-            const data = JSON.parse(msg);
-            if (data.id === id) {
-                ws.off('message', handler);
-                if (data.error) reject(data.error);
-                else resolve(data.result);
-            }
-        };
-        ws.on('message', handler);
-        ws.send(JSON.stringify({ id, method, params }));
-    });
-
+    const pendingCalls = new Map(); // Track pending calls by ID
     const contexts = [];
+    const CDP_CALL_TIMEOUT = 30000; // 30 seconds timeout
+
+    // Single centralized message handler (fixes MaxListenersExceeded warning)
     ws.on('message', (msg) => {
         try {
             const data = JSON.parse(msg);
+
+            // Handle CDP method responses
+            if (data.id !== undefined && pendingCalls.has(data.id)) {
+                const { resolve, reject, timeoutId } = pendingCalls.get(data.id);
+                clearTimeout(timeoutId);
+                pendingCalls.delete(data.id);
+
+                if (data.error) reject(data.error);
+                else resolve(data.result);
+            }
+
+            // Handle execution context events
             if (data.method === 'Runtime.executionContextCreated') {
                 contexts.push(data.params.context);
             }
         } catch (e) { }
+    });
+
+    const call = (method, params) => new Promise((resolve, reject) => {
+        const id = idCounter++;
+
+        // Setup timeout to prevent memory leaks from never-resolved calls
+        const timeoutId = setTimeout(() => {
+            if (pendingCalls.has(id)) {
+                pendingCalls.delete(id);
+                reject(new Error(`CDP call ${method} timed out after ${CDP_CALL_TIMEOUT}ms`));
+            }
+        }, CDP_CALL_TIMEOUT);
+
+        pendingCalls.set(id, { resolve, reject, timeoutId });
+        ws.send(JSON.stringify({ id, method, params }));
     });
 
     await call("Runtime.enable", {});
@@ -146,6 +178,9 @@ async function captureSnapshot(cdp) {
 
 // Inject message into Antigravity
 async function injectMessage(cdp, text) {
+    // Use JSON.stringify for robust escaping (handles ", \, newlines, backticks, unicode, etc.)
+    const safeText = JSON.stringify(text);
+
     const EXPRESSION = `(async () => {
         const cancel = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
         if (cancel && cancel.offsetParent !== null) return { ok:false, reason:"busy" };
@@ -155,16 +190,18 @@ async function injectMessage(cdp, text) {
         const editor = editors.at(-1);
         if (!editor) return { ok:false, error:"editor_not_found" };
 
+        const textToInsert = ${safeText};
+
         editor.focus();
         document.execCommand?.("selectAll", false, null);
         document.execCommand?.("delete", false, null);
 
         let inserted = false;
-        try { inserted = !!document.execCommand?.("insertText", false, "${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"); } catch {}
+        try { inserted = !!document.execCommand?.("insertText", false, textToInsert); } catch {}
         if (!inserted) {
-            editor.textContent = "${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}";
-            editor.dispatchEvent(new InputEvent("beforeinput", { bubbles:true, inputType:"insertText", data:"${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}" }));
-            editor.dispatchEvent(new InputEvent("input", { bubbles:true, inputType:"insertText", data:"${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}" }));
+            editor.textContent = textToInsert;
+            editor.dispatchEvent(new InputEvent("beforeinput", { bubbles:true, inputType:"insertText", data: textToInsert }));
+            editor.dispatchEvent(new InputEvent("input", { bubbles:true, inputType:"insertText", data: textToInsert }));
         }
 
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -477,16 +514,41 @@ async function getAppState(cdp) {
             const state = { mode: 'Unknown', model: 'Unknown' };
             
             // 1. Get Mode (Fast/Planning)
-            // Strategy: Look for the text "Fast" or "Planning" that is visible on screen
+            // Strategy: Find the clickable mode button which contains either "Fast" or "Planning"
+            // It's usually a button or div with cursor:pointer containing the mode text
             const allEls = Array.from(document.querySelectorAll('*'));
-            const textNodes = allEls.filter(el => el.children.length === 0 && el.innerText);
             
-            if (textNodes.some(el => el.innerText === 'Planning')) state.mode = 'Planning';
-            else if (textNodes.some(el => el.innerText === 'Fast')) state.mode = 'Fast';
+            // Find elements that are likely mode buttons
+            for (const el of allEls) {
+                if (el.children.length > 0) continue;
+                const text = (el.innerText || '').trim();
+                if (text !== 'Fast' && text !== 'Planning') continue;
+                
+                // Check if this or a parent is clickable (the actual mode selector)
+                let current = el;
+                for (let i = 0; i < 5; i++) {
+                    if (!current) break;
+                    const style = window.getComputedStyle(current);
+                    if (style.cursor === 'pointer' || current.tagName === 'BUTTON') {
+                        state.mode = text;
+                        break;
+                    }
+                    current = current.parentElement;
+                }
+                if (state.mode !== 'Unknown') break;
+            }
+            
+            // Fallback: Just look for visible text
+            if (state.mode === 'Unknown') {
+                const textNodes = allEls.filter(el => el.children.length === 0 && el.innerText);
+                if (textNodes.some(el => el.innerText.trim() === 'Planning')) state.mode = 'Planning';
+                else if (textNodes.some(el => el.innerText.trim() === 'Fast')) state.mode = 'Fast';
+            }
 
             // 2. Get Model
             // Strategy: Look for button containing a known model keyword
             const KNOWN_MODELS = ["Gemini", "Claude", "GPT"];
+            const textNodes = allEls.filter(el => el.children.length === 0 && el.innerText);
             const modelEl = textNodes.find(el => {
                 const txt = el.innerText;
                 // Avoids "Select Model" placeholder if possible, but usually a model is selected
@@ -590,6 +652,16 @@ async function createServer() {
         res.json(lastSnapshot);
     });
 
+    // Health check endpoint
+    app.get('/health', (req, res) => {
+        res.json({
+            status: 'ok',
+            cdpConnected: cdpConnection?.ws?.readyState === 1, // WebSocket.OPEN = 1
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString()
+        });
+    });
+
     // Debug UI Endpoint
     app.get('/debug-ui', async (req, res) => {
         if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
@@ -683,10 +755,31 @@ async function main() {
 
         // Start server
         const PORT = process.env.PORT || 3000;
+        const localIP = getLocalIP();
         server.listen(PORT, '0.0.0.0', () => {
-            console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
-            console.log(`📱 Access from mobile: http://<your-ip>:${PORT}`);
+            console.log(`🚀 Server running on http://localhost:${PORT}`);
+            console.log(`📱 Access from mobile: http://${localIP}:${PORT}`);
         });
+
+        // Graceful shutdown handlers
+        const gracefulShutdown = (signal) => {
+            console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+            wss.close(() => {
+                console.log('   WebSocket server closed');
+            });
+            server.close(() => {
+                console.log('   HTTP server closed');
+            });
+            if (cdpConnection?.ws) {
+                cdpConnection.ws.close();
+                console.log('   CDP connection closed');
+            }
+            setTimeout(() => process.exit(0), 1000);
+        };
+
+        process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+        process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
     } catch (err) {
         console.error('❌ Fatal error:', err.message);
         process.exit(1);

@@ -43,7 +43,9 @@ goto menu
 :backup
 echo.
 echo [BACKUP] Exporting registry keys...
-set "BACKUP_FILE=%~dp0context_menu_backup_%date:~-4%%date:~3,2%%date:~0,2%.reg"
+:: Use PowerShell for locale-independent timestamp (works on all Windows locales)
+for /f %%a in ('powershell -command "Get-Date -Format 'yyyyMMdd_HHmmss'"') do set "TIMESTAMP=%%a"
+set "BACKUP_FILE=%~dp0context_menu_backup_%TIMESTAMP%.reg"
 reg export "HKEY_CLASSES_ROOT\Directory\Background\shell\AntigravityDebug" "%BACKUP_FILE%" /y 2>nul
 reg export "HKEY_CLASSES_ROOT\Directory\shell\AntigravityDebug" "%BACKUP_FILE%" /y 2>nul
 if exist "%BACKUP_FILE%" (
