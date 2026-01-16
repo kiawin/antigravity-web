@@ -7,7 +7,8 @@ Antigravity-Shit-Chat/
 ├── ui_inspector.js     # Utility for inspecting VS Code/Antigravity UI via CDP
 ├── public/
 │   └── index.html      # Mobile-optimized web frontend
-├── start_monitor.bat   # Convenience script to setup/start the service
+├── start_ag_phone_connect.bat  # Windows launcher
+├── start_ag_phone_connect.sh   # Mac/Linux launcher
 ├── package.json        # Dependencies and metadata
 ├── LICENSE             # GPL v3 License
 └── README.md           # Quick-start guide

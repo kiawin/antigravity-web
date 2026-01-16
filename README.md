@@ -1,72 +1,57 @@
-# Antigravity Phone Connect - Mobile Monitor
+# Antigravity Phone Connect 📱
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-Need to go to the bathroom? But Opus 4.5 might be done with that big task soon? Want to eat lunch? But there's more tokens left before they reset right after lunch?
+**Antigravity Phone Connect** is a high-performance, real-time mobile monitor and remote control for your Antigravity AI sessions. It allows you to step away from your desk while keeping full sight and control over your AI's thinking process and generations.
 
-<img width="1957" height="1060" alt="screenshot" src="https://github.com/user-attachments/assets/95318065-d943-43f1-b05c-26fd7c0733dd" />
-
-A real-time mobile interface for monitoring and interacting with Antigravity chat sessions.
-
----
 **Note:** This project is a refined fork/extension based on the original [Antigravity Shit-Chat](https://github.com/gherghett/Antigravity-Shit-Chat) by gherghett.
 
-## How It Works
+---
 
-It's a simple system, but pretty hacky.
+## 🚀 Quick Start (Windows)
 
-The mobile monitor operates through three main components:
+The easiest way to get started is using the provided automation script.
 
-### 1. Reading (Snapshot Capture)
-The server connects to Antigravity via Chrome DevTools Protocol (CDP) and periodically captures **snapshots of the chat interface**:
-- Captures all CSS styles to preserve formatting
-- Captures the HTML of the chat interface
-- Buttons and everything that you wont be able to click
-- Polls every 1 second and only updates when content changes
-
-### 2. Injecting (Message Sending)
-Antigravity must be run in chrome with remote debugging enabled.
-Messages typed in the mobile interface are injected directly into Antigravity:
-- Locates the Antigravity chat input editor
-- Inserts the message text and triggers submission
-- Handles the input safely without interfering with ongoing operations
-
-### 3. Serving (Web Interface)
-A lightweight web server provides the mobile UI:
-- WebSocket connection for real-time updates
-- Auto-refresh when new content appears
-- Clean, responsive interface optimized for mobile devices
-- Send messages directly from your phone
-
-## Setup
-
-### 1. Start Antigravity with CDP
-
-Start Antigravity with Chrome DevTools Protocol enabled:
-
+### 1. Enable Antigravity Debugging
+You must launch Antigravity with the remote debugging port enabled. Run this command in your project folder:
 ```bash
 antigravity . --remote-debugging-port=9000
 ```
 
-### 2. Install Dependencies
+### 2. Run the Monitor
+Simply double-click **`start_ag_phone_connect.bat`** in this folder.
+The script will:
+- Verify Node.js is installed.
+- Automatically install dependencies (`npm install`) if they are missing.
+- Detect and display your **Local IP Address**.
+- Start the server on port `3000`.
 
-```bash
-npm install
-```
+### 3. Connect Your Phone
+1. Ensure your phone is on the **same Wi-Fi network** as your PC.
+2. Look at the terminal window opened by the `.bat` file to find your `IPv4 Address`.
+3. Open your mobile browser and enter: `http://YOUR_IP:3000`
+   *(Example: `http://192.168.1.5:3000`)*
 
-### 3. Start the Monitor
+---
 
-```bash
-node server.js
-```
+## ✨ Features
+- **Real-Time Mirroring**: 1-second polling interval for a near-instant sync experience.
+- **Remote Control**: Send messages, stop generations, and switch Modes (Fast/Planning) or Models (Gemini/Claude/GPT) directly from your phone.
+- **Thought Expansion**: Tap on "Thinking..." or "Thought" blocks on your phone to remotely expand them in the desktop IDE.
+- **Smart Sync**: Bi-directional synchronization ensures your phone always shows the current Model and Mode selected on your desktop.
+- **Premium Mobile UI**: A sleek, dark-themed interface optimized for touch interaction and long-form reading.
+- **Zero-Config**: The launch scripts handle the heavy lifting of environment setup.
 
-### 4. Access from Mobile
+---
 
-Open your browser in the bathroom and navigate to:
-```
-http://<your-local-ip>:3000
-```
+## 📂 Documentation
+For more technical details, check out:
+- [**Code Documentation**](CODE_DOCUMENTATION.md) - Architecture, Data Flow, and API.
+- [**Design Philosophy**](DESIGN_PHILOSOPHY.md) - Why it was built this way.
+- [**Contributing**](CONTRIBUTING.md) - Guidelines for developers.
 
-This is over local network, so it will not work if you are on a different network, unless you use a VPN or something.
+---
 
-The interface will automatically connect and display your Antigravity conversation in almost real-time.
+## License
+Licensed under the [GNU GPL v3](LICENSE).  
+Copyright (C) 2026 **Krishna Kanth B** (@krishnakanthb13)
