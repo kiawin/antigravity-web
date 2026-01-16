@@ -11,6 +11,8 @@
         "ws": "^8.18.0",
         "express": "^4.18.2"
     },
+    "author": "Krishna Kanth B (krishnakanthb13)",
+    "license": "GPL-3.0-only",
     "engines": {
         "node": ">=16.0.0"
     }
