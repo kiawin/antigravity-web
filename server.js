@@ -783,6 +783,170 @@ async function stopGeneration(cdp) {
     return { error: 'Context failed' };
 }
 
+// Trigger AGQ - Click the AGQ button in IDE and extract model quota data
+async function triggerAgq(cdp) {
+    const EXP = `(async () => {
+        try {
+            // Step 1: Find the AGQ element in the status bar
+            // Use getElementById to avoid escaping issues with period in ID
+            let agqElement = document.getElementById('henrikdev.ag-quota');
+            
+            // Fallback: Try finding by aria-label containing AGQ
+            if (!agqElement) {
+                agqElement = document.querySelector('[aria-label*="AGQ"]');
+            }
+            
+            // Fallback: Find any statusbar item with "ag-quota" in ID
+            if (!agqElement) {
+                agqElement = document.querySelector('[id*="ag-quota"]');
+            }
+            
+            if (!agqElement) {
+                // Debug: Get all status bar items for diagnosis
+                const statusItems = Array.from(document.querySelectorAll('.statusbar-item')).map(el => ({
+                    id: el.id,
+                    ariaLabel: el.getAttribute('aria-label')?.substring(0, 50)
+                }));
+                return { 
+                    error: 'AGQ element not found in status bar',
+                    debug: { statusItemCount: statusItems.length, items: statusItems.slice(0, 10) }
+                };
+            }
+            
+            // Step 2: Click the AGQ element to open the quick input widget
+            const clickable = agqElement.querySelector('a.statusbar-item-label') || agqElement;
+            clickable.click();
+            
+            // Step 3: Wait for quick input widget to appear
+            await new Promise(r => setTimeout(r, 500));
+            
+            // Step 4: Find the quick input widget
+            const quickInput = document.querySelector('.quick-input-widget');
+            if (!quickInput) {
+                return { error: 'Quick input widget not found after clicking AGQ' };
+            }
+            
+            // Step 5: Extract model quota data from monaco list rows
+            const listRows = quickInput.querySelectorAll('.monaco-list-row');
+            if (!listRows || listRows.length === 0) {
+                // Close the widget
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                return { error: 'No model data found in quick input' };
+            }
+            
+            const models = [];
+            listRows.forEach(row => {
+                const ariaLabel = row.getAttribute('aria-label') || '';
+                // Parse aria-label: "circle-outline  Gemini 3 Pro (High), ▓▓░░░░░░░░ 20.0%, Resets in: 1h 31m (01/19/2026 03:21), Model Quotas"
+                // Format: "icon  Name, usageBar percentage%, Resets in: time (date), optional section"
+                
+                // Split by comma
+                const parts = ariaLabel.split(',').map(p => p.trim());
+                if (parts.length >= 3) {
+                    // First part: "circle-outline  Model Name" or "circle-outline warning Gemini 3 Pro (High)"
+                    // Repeatedly strip known icon prefixes from the start
+                    let namePart = parts[0].trim();
+                    const iconPrefixes = ['circle-outline', 'circle', 'warning', 'check', 'error', 'info', 'pass', 'fail', 'codicon'];
+                    let changed = true;
+                    while (changed) {
+                        changed = false;
+                        for (const prefix of iconPrefixes) {
+                            if (namePart.toLowerCase().startsWith(prefix)) {
+                                namePart = namePart.substring(prefix.length).trim();
+                                changed = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Second part: "▓▓░░░░░░░░ 20.0%"
+                    const usagePart = parts[1] || '';
+                    // Extract percentage - find the number before %
+                    let usagePercent = 0;
+                    const percentIdx = usagePart.indexOf('%');
+                    if (percentIdx > 0) {
+                        // Extract number before %
+                        let numStr = '';
+                        for (let i = percentIdx - 1; i >= 0; i--) {
+                            const ch = usagePart[i];
+                            if ((ch >= '0' && ch <= '9') || ch === '.') {
+                                numStr = ch + numStr;
+                            } else if (numStr) break;
+                        }
+                        if (numStr) usagePercent = parseFloat(numStr);
+                    }
+                    
+                    // Third part: "Resets in: 1h 31m (01/19/2026 03:21)"
+                    const resetPart = parts[2] || '';
+                    const resetIdx = resetPart.indexOf('Resets in:');
+                    const resetTime = resetIdx >= 0 ? resetPart.substring(resetIdx + 10).trim() : resetPart;
+                    
+                    models.push({
+                        name: namePart,
+                        usagePercent: usagePercent,
+                        resetTime: resetTime
+                    });
+                }
+            });
+            
+            // Step 6: Close the quick input widget (press Escape)
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise(r => setTimeout(r, 100));
+            
+            return {
+                success: true,
+                models: models
+            };
+        } catch (err) {
+            // Try to close widget on error
+            try {
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            } catch {}
+            return { error: 'JS Error: ' + err.toString() };
+        }
+    })()`;
+
+    // First try main frame (without contextId) - status bar is in main workbench
+    console.log('[AGQ] Trying main frame...');
+    try {
+        const res = await cdp.call("Runtime.evaluate", {
+            expression: EXP,
+            returnByValue: true,
+            awaitPromise: true
+        });
+        console.log('[AGQ] Main frame result:', JSON.stringify(res.result?.value || res.result));
+        if (res.result?.value?.success) return res.result.value;
+        // If we got an error but not a context error, return it for debugging
+        if (res.result?.value?.error && res.result?.value?.debug) {
+            console.log('[AGQ] Got debug info, trying contexts...');
+            // Continue to try contexts
+        } else if (res.result?.value) {
+            return res.result.value;
+        }
+    } catch (e) {
+        console.log('[AGQ] Main frame error:', e.message);
+    }
+
+    // Fall back to trying specific contexts
+    console.log('[AGQ] Trying', cdp.contexts.length, 'contexts...');
+    for (const ctx of cdp.contexts) {
+        try {
+            console.log('[AGQ] Trying context:', ctx.id);
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: EXP,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            console.log('[AGQ] Context', ctx.id, 'result:', JSON.stringify(res.result?.value || res.result));
+            if (res.result?.value?.success) return res.result.value;
+        } catch (e) {
+            console.log('[AGQ] Context', ctx.id, 'error:', e.message);
+        }
+    }
+    return { error: 'Context failed - status bar not accessible' };
+}
+
 // Click Element (Remote)
 async function clickElement(cdp, { selector, index, textContent }) {
     const EXP = `(async () => {
@@ -1672,6 +1836,18 @@ async function createServer() {
         if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
         const result = await stopGeneration(cdpConnection);
         res.json(result);
+    });
+
+    // Trigger AGQ - Get Model Quotas
+    app.post('/trigger-agq', async (req, res) => {
+        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+        try {
+            const result = await triggerAgq(cdpConnection);
+            res.json(result);
+        } catch (e) {
+            console.error('[AGQ] Error:', e);
+            res.status(500).json({ error: 'Server error: ' + e.message });
+        }
     });
 
     // Get conversation history

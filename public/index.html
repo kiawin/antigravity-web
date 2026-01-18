@@ -33,6 +33,12 @@
             --error: var(--codeium-error, #ef4444);
 
             --surface-hover: var(--codeium-list-hover-background, #1a1a1a);
+
+            /* IDE Tailwind theme color mappings (for prose content from IDE snapshots) */
+            --ide-text-color: var(--text-main);
+            --ide-editor-color: var(--text-main);
+            --ide-button-color: var(--accent);
+            --ide-button-secondary-color: var(--text-muted);
         }
 
         * {
@@ -736,6 +742,47 @@
             font-size: 16px;
             padding: 0 4px;
         }
+
+        /* Prose dark mode overrides - force bright text on dark backgrounds */
+        /* Tailwind Typography's prose-p:text-ide-text-color doesn't work without theme config */
+        .prose,
+        .prose p,
+        .prose li,
+        .prose strong,
+        .prose span {
+            color: var(--text-main) !important;
+        }
+
+        .prose h1,
+        .prose h2,
+        .prose h3,
+        .prose h4,
+        .prose h5,
+        .prose h6 {
+            color: var(--text-main) !important;
+        }
+
+        .prose a {
+            color: var(--accent) !important;
+        }
+
+        .prose code {
+            color: var(--text-main) !important;
+        }
+
+        .prose blockquote {
+            color: var(--text-muted) !important;
+            border-left-color: var(--border) !important;
+        }
+
+        /* Fix elements with text-ide-text-color class */
+        .text-ide-text-color {
+            color: var(--text-main) !important;
+        }
+
+        .text-ide-editor-color {
+            color: var(--text-main) !important;
+        }
     </style>
 </head>
 
@@ -870,12 +917,14 @@
                 </div>
 
                 <div class="input-right-tools">
-                    <button class="tool-btn">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                            <line x1="12" y1="19" x2="12" y2="23" />
-                            <line x1="8" y1="23" x2="16" y2="23" />
+                    <button class="tool-btn" id="agqBtn" aria-label="Model Quotas">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path
+                                d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                            <path
+                                d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
                         </svg>
                     </button>
                     <div class="stop-gen-btn" id="stopBtn"></div>

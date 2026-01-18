@@ -26,7 +26,8 @@ const UI = {
     modalList: document.getElementById('modalList'),
     modalTitle: document.getElementById('modalTitle'),
     modeText: document.getElementById('modeText'),
-    modelText: document.getElementById('modelText')
+    modelText: document.getElementById('modelText'),
+    agqBtn: document.getElementById('agqBtn')
 };
 
 // --- State ---
@@ -334,17 +335,8 @@ async function loadSnapshot() {
                 UI.thinkingIndicator.style.display = 'none';
             }
 
-            // Sync Button States
+            // Sync Button States (Stop button only - Send is not synced since mobile input is independent)
             if (data.buttonStates) {
-                // Send Button
-                if (data.buttonStates.sendDisabled) {
-                    UI.sendBtn.disabled = true;
-                    UI.sendBtn.style.opacity = '0.5';
-                } else {
-                    UI.sendBtn.disabled = false;
-                    UI.sendBtn.style.opacity = '1';
-                }
-
                 // Stop Button
                 if (data.buttonStates.stopVisible) {
                     UI.stopBtn.style.display = 'block';
@@ -879,6 +871,10 @@ function initEventHandlers() {
 
     UI.addBtn?.addEventListener('click', async () => {
         UI.addBtn.style.opacity = '0.5';
+
+        // Clear chat content immediately for a fresh start
+        UI.chatContent.innerHTML = '';
+
         try {
             // Set flag and optimistic title update
             isNewConversation = true;
@@ -905,6 +901,48 @@ function initEventHandlers() {
     });
 
     UI.historyBtn?.addEventListener('click', openConversationModal);
+
+    // AGQ Button - Model Quotas
+    UI.agqBtn?.addEventListener('click', async () => {
+        UI.agqBtn.style.opacity = '0.5';
+        try {
+            const res = await fetch('/trigger-agq', { method: 'POST' });
+            const data = await res.json();
+
+            if (data.success && data.models && data.models.length > 0) {
+                const options = data.models.map(model => ({
+                    value: model,
+                    html: `
+                        <div style="display:flex; flex-direction:column; gap:4px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:500; font-size:14px; color:var(--text-main);">${escapeHtml(model.name || '')}</span>
+                                <span style="font-size:12px; color:var(--text-muted);">${model.usagePercent}%</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <div style="flex:1; background:var(--bg-input); border-radius:4px; height:6px; overflow:hidden;">
+                                    <div style="width:${model.usagePercent}%; height:100%; background:var(--accent); border-radius:4px;"></div>
+                                </div>
+                            </div>
+                            <span style="font-size:11px; color:var(--text-muted);">⏱️ ${escapeHtml(String(model.resetTime || ''))}</span>
+                        </div>
+                    `
+                }));
+
+                openModal('Model Quotas', options, (selected) => {
+                    console.log('Selected model:', selected.name);
+                });
+            } else {
+                const debugInfo = data.debug ? JSON.stringify(data.debug, null, 2) : '';
+                console.log('AGQ debug info:', data);
+                alert('Could not load model quotas: ' + (data.error || 'Unknown error') + (debugInfo ? '\n\nDebug: ' + debugInfo : ''));
+            }
+        } catch (e) {
+            console.error('Failed to fetch model quotas:', e);
+            alert('Failed to fetch model quotas');
+        } finally {
+            UI.agqBtn.style.opacity = '1';
+        }
+    });
 
     UI.refreshBtn?.addEventListener('click', () => {
         loadSnapshot();
