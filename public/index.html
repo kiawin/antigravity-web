@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Antigravity Phone Connect</title>
+    <title>Antigravity Web</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -12,29 +12,27 @@
         rel="stylesheet">
     <style>
         :root {
-            /* Premium Dark Theme Tokens (Slate Palette) */
-            --bg-app: #0f172a;
-            /* Slate 950 */
-            --bg-panel: #1e293b;
-            /* Slate 800 */
-            --bg-input: #334155;
-            /* Slate 700 */
-            --border: #334155;
-            /* Slate 700 */
-            --text-main: #f8fafc;
-            /* Slate 50 */
-            --text-muted: #94a3b8;
-            /* Slate 400 */
-            --accent: #3b82f6;
-            /* Blue 500 */
-            --accent-hover: #2563eb;
-            /* Blue 600 */
-            --success: #22c55e;
-            /* Green 500 */
-            --warning: #eab308;
-            /* Yellow 500 */
-            --error: #ef4444;
-            /* Red 500 */
+            /* Map IDE variables to mobile app variable names */
+            /* Text Colors */
+            --text-main: var(--codeium-foreground, #ffffff);
+            --text-muted: var(--codeium-foreground-muted, #8e8e8e);
+
+            /* Backgrounds */
+            --bg-app: var(--codeium-editor-background, #000000);
+            --bg-panel: var(--codeium-panel-background, #0a0a0a);
+            --bg-input: var(--codeium-input-background, #141414);
+
+            /* UI Elements */
+            --border: var(--codeium-border-color, #1f1f1f);
+            --accent: var(--codeium-button-background, #3b82f6);
+            --accent-hover: var(--codeium-button-hover-background, #2563eb);
+
+            /* Status Colors */
+            --success: var(--codeium-success, #22c55e);
+            --warning: var(--codeium-warning, #eab308);
+            --error: var(--codeium-error, #ef4444);
+
+            --surface-hover: var(--codeium-list-hover-background, #1a1a1a);
         }
 
         * {
@@ -66,12 +64,9 @@
         }
 
 
-        /* Header */
         .header {
-            background: rgba(30, 41, 59, 0.8);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            padding: 14px 16px;
+            background: var(--bg-app);
+            padding: 12px 16px;
             border-bottom: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
@@ -80,46 +75,50 @@
             z-index: 50;
         }
 
-        .header h1 {
-            font-size: 16px;
+        .conversation-header {
+            background: var(--bg-app);
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: none;
+            /* Hidden by default */
+            align-items: center;
+            justify-content: flex-start;
+            flex-shrink: 0;
+            z-index: 40;
+        }
+
+        .conversation-header span {
+            font-size: 13px;
             font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header h1 {
+            font-size: 15px;
+            font-weight: 500;
             color: var(--text-main);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+        }
+
+        .header h1 span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 180px;
         }
 
         .header-controls {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
         }
 
-        .stop-btn {
-            background: #ef4444;
-            color: #fff;
-            border: none;
-            padding: 4px 8px;
-            font-size: 11px;
-            font-weight: 600;
-            border-radius: 4px;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
-            display: none;
-            /* Only show when needed or always show? User asked for feature 1 */
-            /* I'll make it always visible or toggleable */
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .stop-btn:active {
-            transform: scale(0.95);
-        }
-
-        .refresh-btn {
+        .header-btn {
             background: transparent;
             border: none;
             color: var(--text-muted);
@@ -132,16 +131,16 @@
             transition: all 0.2s;
         }
 
-        .refresh-btn:hover {
+        .header-btn:hover {
             color: var(--text-main);
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--surface-hover);
         }
 
-        .refresh-btn svg {
+        .header-btn svg {
             width: 18px;
             height: 18px;
             stroke: currentColor;
-            stroke-width: 2.5;
+            stroke-width: 2;
             fill: none;
         }
 
@@ -242,67 +241,149 @@
 
         /* Input Section */
         .input-section {
-            background: var(--bg-panel);
-            border-top: none;
-            /* Removed border since actions are above */
-            padding: 8px 16px 12px 16px;
-            padding-bottom: max(12px, env(safe-area-inset-bottom));
+            background: var(--bg-app);
+            padding: 12px 16px;
+            padding-bottom: max(16px, env(safe-area-inset-bottom));
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 12px;
         }
 
-        .input-wrapper {
+        .thinking-indicator {
             display: flex;
-            gap: 4px;
             align-items: center;
-            /* Center text vertically */
-            background-color: var(--bg-input);
-            padding: 4px 4px 4px 16px;
-            /* Reduced vertical padding */
-            border-radius: 24px;
-            border: 1px solid var(--border);
-            transition: all 0.2s;
-            min-height: 48px;
-            background-image: none !important;
-            box-shadow: none !important;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            opacity: 0.7;
         }
 
-        .input-wrapper:focus-within {
-            border-color: var(--accent);
-            background-color: var(--bg-panel);
-            /* Soft glow instead of hard shadow */
-            box-shadow: 0 0 10px rgba(37, 99, 235, 0.2) !important;
+        .thinking-indicator::after {
+            content: "..";
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+
+            0%,
+            20% {
+                content: "";
+            }
+
+            40% {
+                content: ".";
+            }
+
+            60% {
+                content: "..";
+            }
+
+            80%,
+            100% {
+                content: "...";
+            }
+        }
+
+        .input-container {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
         textarea {
-            flex: 1;
-            /* NUCLEAR OPTION for cleanup */
-            background-color: transparent !important;
-            background: rgba(0, 0, 0, 0) !important;
-            background-image: none !important;
+            width: 100%;
+            background: transparent !important;
             border: none !important;
             color: #ffffff !important;
-            padding: 10px 0;
-            /* Vertical center visual */
-            font-size: 16px;
+            font-size: 15px;
             font-family: inherit;
-            resize: none;
-            min-height: 24px;
-            /* Matches line height */
-            max-height: 160px;
             line-height: 1.5;
-            opacity: 1;
-            margin: 0;
+            resize: none;
+            padding: 0;
             outline: none !important;
-            box-shadow: none !important;
-            /* Vendor Resets */
+            min-height: 24px;
+            max-height: 160px;
+            caret-color: var(--accent);
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
-            border-radius: 0;
-            caret-color: var(--accent);
+        }
+
+        textarea::placeholder {
+            color: #555;
+        }
+
+        .input-bottom-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .input-left-tools {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .input-right-tools {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .tool-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tool-btn svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+
+        .pill-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            padding: 2px 4px;
+        }
+
+        .pill-btn:hover {
+            color: var(--text-main);
+        }
+
+        .pill-btn svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .stop-gen-btn {
+            width: 20px;
+            height: 20px;
+            background: #ef4444;
+            border-radius: 4px;
+            cursor: pointer;
+            display: none;
+            /* Only show when generating */
         }
 
         /* Specific fix for Chrome/Android autofill background */
@@ -471,6 +552,112 @@
             display: flex;
         }
 
+        /* Artifact Viewer Overlay */
+        .artifact-viewer-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-app);
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+        }
+
+        /* Injected Controls */
+        .artifact-viewer-nav-injected {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            margin-right: 12px;
+        }
+
+        .artifact-viewer-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .artifact-viewer-btn:hover,
+        .artifact-viewer-btn:not(:disabled):hover {
+            background: var(--bg-input);
+            color: var(--text-main);
+        }
+
+        .artifact-viewer-btn:disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        .artifact-viewer-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Fallback FABs */
+        .artifact-viewer-fab-close,
+        .artifact-viewer-fab-back {
+            position: fixed;
+            z-index: 3010;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            color: var(--text-main);
+            cursor: pointer;
+        }
+
+        .artifact-viewer-fab-close {
+            top: 16px;
+            right: 16px;
+        }
+
+        .artifact-viewer-fab-back {
+            top: 16px;
+            left: 16px;
+        }
+
+        /* Content area adjustments */
+        .artifact-viewer-content {
+            flex: 1;
+            overflow-y: auto;
+            background: var(--bg-app);
+            padding: 0;
+            color: var(--text-main);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .artifact-viewer-content h1,
+        .artifact-viewer-content h2,
+        .artifact-viewer-content h3 {
+            margin-top: 1em;
+            margin-bottom: 0.5em;
+        }
+
+        .artifact-viewer-content pre {
+            background: var(--bg-input);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+
+        .artifact-viewer-content code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+
         .modal-panel {
             background: var(--bg-panel);
             width: 100%;
@@ -553,60 +740,46 @@
 </head>
 
 <body>
-    <!-- Header -->
     <header class="header">
         <h1>
-            <span>Antigravity Phone Connect</span>
+            <span id="titleText">Antigravity Web</span>
         </h1>
 
         <div class="header-controls">
-            <button class="stop-btn" id="stopBtn" aria-label="STOP">
-                <span>STOP</span>
-            </button>
-            <button class="refresh-btn" id="refreshBtn" aria-label="Refresh">
-                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M23 4v6h-6"></path>
-                    <path d="M1 20v-6h6"></path>
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            <button class="header-btn" id="addBtn" aria-label="Add">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 5v14M5 12h14" />
                 </svg>
             </button>
-            <div class="status-badge">
-                <div class="status-dot disconnected" id="statusDot"></div>
-                <span id="statusText">Connecting...</span>
-            </div>
+            <button class="header-btn" id="historyBtn" title="Conversation History">
+                <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9 0 0 0-6.74 2.74L3 8"></path>
+                    <path d="M3 3v5h5"></path>
+                    <path d="M12 7v5l4 2"></path>
+                </svg>
+            </button>
+            <button class="header-btn" id="moreBtn" aria-label="More">
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="1" />
+                    <circle cx="19" cy="12" r="1" />
+                    <circle cx="5" cy="12" r="1" />
+                </svg>
+            </button>
+            <button class="header-btn" id="closeBtn" aria-label="Close">
+                <svg viewBox="0 0 24 24">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+            </button>
         </div>
     </header>
 
-    <!-- Settings Bar -->
-    <div class="settings-bar">
-        <div class="setting-chip" id="modeBtn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
-            <span id="modeText">Fast</span>
-        </div>
-        <div class="setting-chip" id="modelBtn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 16v-4" />
-                <path d="M12 8h.01" />
-            </svg>
-            <span id="modelText">Select Model</span>
-        </div>
-        <div class="setting-chip" id="syncStats" style="cursor: default; border: none; background: transparent;">
-            <span id="statsText" style="font-size: 10px; opacity: 0.6;">Syncing...</span>
-        </div>
-    </div>
-
-    <!-- SSL Banner (shown when running HTTP) -->
-    <div class="ssl-banner" id="sslBanner" style="display: none;">
-        <span>⚠️ Not Secure - Running on HTTP</span>
-        <button id="enableHttpsBtn" onclick="enableHttps()">Enable HTTPS</button>
-        <button class="dismiss-btn" onclick="dismissSslBanner()">×</button>
+    <div id="conversationHeader" class="conversation-header">
+        <span id="conversationTitleText"></span>
     </div>
 
     <!-- Chat Container -->
-    <div class="chat-container" id="chatContainer">
+    <div class="chat-container" id="chatContainer" role="log">
         <div class="chat-content" id="chatContent">
             <div class="loading-state">
                 <div class="loading-spinner"></div>
@@ -622,26 +795,98 @@
         </svg>
     </button>
 
-    <!-- Quick Actions -->
-    <div class="quick-actions">
+    <!-- Quick Actions (Hidden but functional via JS if needed) -->
+    <div class="quick-actions" style="display: none;">
         <div class="action-chip" onclick="quickAction('Continue')">Continue</div>
-        <div class="action-chip" onclick="quickAction('Please fix the bugs in this file.')">Fix Bugs</div>
-        <div class="action-chip" onclick="quickAction('Please create documentation for this.')">Create Docs</div>
     </div>
 
     <!-- Input Section -->
     <div class="input-section">
-        <div class="input-wrapper">
-            <textarea id="messageInput" placeholder="Message..." rows="1"></textarea>
+        <div class="thinking-indicator" id="thinkingIndicator" style="display: none;">
+            Thinking..
+        </div>
 
-
-
-            <button class="send-btn" id="sendBtn" aria-label="Send">
-                <svg viewBox="0 0 24 24">
-                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"
-                        style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;" />
+        <!-- Action Row (Hidden for now as they are not functional) -->
+        <div style="display: none; gap: 12px; margin-bottom: 8px;">
+            <button class="header-btn" style="padding:0; color:var(--text-muted);">
+                <svg viewBox="0 0 24 24" style="width:20px; height:20px;">
+                    <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z" />
                 </svg>
             </button>
+            <button class="header-btn" style="padding:0; color:var(--text-muted);">
+                <svg viewBox="0 0 24 24" style="width:20px; height:20px;">
+                    <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z" />
+                </svg>
+            </button>
+            <button class="header-btn" style="padding:0; color:var(--accent);">
+                <svg viewBox="0 0 24 24" style="width:20px; height:20px;">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="M21 21l-4.35-4.35" />
+                </svg>
+            </button>
+
+            <button id="reviewChangesBtn" aria-label="Review Changes"
+                style="margin-left: auto; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #60a5fa; font-size: 13px; padding: 6px 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <svg viewBox="0 0 24 24"
+                    style="width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2.5;">
+                    <path d="M20 6L9 17l-5-5" />
+                </svg>
+                Review Changes
+            </button>
+        </div>
+
+        <div class="input-container">
+            <textarea id="messageInput" placeholder="Ask anything, @ to mention" aria-label="Message input"
+                rows="1"></textarea>
+
+            <div class="input-bottom-bar">
+                <div class="input-left-tools">
+                    <button class="tool-btn" id="plusBtn">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
+                    </button>
+
+                    <button class="pill-btn" id="modeBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                        <span id="modeText">Planning</span>
+                        <svg viewBox="0 0 24 24" style="width:12px; height:12px;">
+                            <path d="M7 10l5 5 5-5" />
+                        </svg>
+                    </button>
+
+                    <button class="pill-btn" id="modelBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 16v-4M12 8h.01" />
+                        </svg>
+                        <span id="modelText">Gemini 3 Pro (High)...</span>
+                        <svg viewBox="0 0 24 24" style="width:12px; height:12px;">
+                            <path d="M7 10l5 5 5-5" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="input-right-tools">
+                    <button class="tool-btn">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                    </button>
+                    <div class="stop-gen-btn" id="stopBtn"></div>
+                    <button class="tool-btn" id="sendBtn" style="color:var(--text-main);">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"
+                                style="fill: none; stroke: currentColor; stroke-width: 2;" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -657,566 +902,7 @@
         </div>
     </div>
 
-    <script>
-        // --- Elements ---
-        const chatContainer = document.getElementById('chatContainer');
-        const chatContent = document.getElementById('chatContent');
-        const messageInput = document.getElementById('messageInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const scrollToBottomBtn = document.getElementById('scrollToBottom');
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-        const refreshBtn = document.getElementById('refreshBtn');
-        const stopBtn = document.getElementById('stopBtn');
-
-        const modeBtn = document.getElementById('modeBtn');
-        const modelBtn = document.getElementById('modelBtn');
-        const modalOverlay = document.getElementById('modalOverlay');
-        const modalList = document.getElementById('modalList');
-        const modalTitle = document.getElementById('modalTitle');
-        const modeText = document.getElementById('modeText');
-        const modelText = document.getElementById('modelText');
-
-        // --- State ---
-        let autoRefreshEnabled = true;
-        let userIsScrolling = false;
-        let lastScrollPosition = 0;
-        let ws = null;
-        let idleTimer = null;
-        let lastHash = '';
-        let currentMode = 'Fast';
-
-        // --- Sync State (Desktop is Always Priority) ---
-        async function fetchAppState() {
-            try {
-                const res = await fetch('/app-state');
-                const data = await res.json();
-
-                // Mode Sync (Fast/Planning) - Desktop is source of truth
-                if (data.mode && data.mode !== 'Unknown') {
-                    modeText.textContent = data.mode;
-                    modeBtn.classList.toggle('active', data.mode === 'Planning');
-                    currentMode = data.mode;
-                }
-
-                // Model Sync - Desktop is source of truth
-                if (data.model && data.model !== 'Unknown') {
-                    modelText.textContent = data.model;
-                }
-
-                console.log('[SYNC] State refreshed from Desktop:', data);
-            } catch (e) { console.error('[SYNC] Failed to sync state', e); }
-        }
-
-        // --- SSL Banner ---
-        const sslBanner = document.getElementById('sslBanner');
-
-        async function checkSslStatus() {
-            // Only show banner if currently on HTTP
-            if (window.location.protocol === 'https:') return;
-
-            // Check if user dismissed the banner before
-            if (localStorage.getItem('sslBannerDismissed')) return;
-
-            sslBanner.style.display = 'flex';
-        }
-
-        async function enableHttps() {
-            const btn = document.getElementById('enableHttpsBtn');
-            btn.textContent = 'Generating...';
-            btn.disabled = true;
-
-            try {
-                const res = await fetch('/generate-ssl', { method: 'POST' });
-                const data = await res.json();
-
-                if (data.success) {
-                    sslBanner.innerHTML = `
-                        <span>✅ ${data.message}</span>
-                        <button onclick="location.reload()">Reload After Restart</button>
-                    `;
-                    sslBanner.style.background = 'linear-gradient(90deg, #22c55e, #16a34a)';
-                } else {
-                    btn.textContent = 'Failed - Retry';
-                    btn.disabled = false;
-                }
-            } catch (e) {
-                btn.textContent = 'Error - Retry';
-                btn.disabled = false;
-            }
-        }
-
-        function dismissSslBanner() {
-            sslBanner.style.display = 'none';
-            localStorage.setItem('sslBannerDismissed', 'true');
-        }
-
-        // Check SSL on load
-        checkSslStatus();
-        // --- Models ---
-        const MODELS = [
-            "Gemini 3 Pro (High)",
-            "Gemini 3 Pro (Low)",
-            "Gemini 3 Flash",
-            "Claude Sonnet 4.5",
-            "Claude Sonnet 4.5 (Thinking)",
-            "Claude Opus 4.5 (Thinking)",
-            "GPT-OSS 120B (Medium)"
-        ];
-
-        // --- WebSocket ---
-        function connectWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}`);
-
-            ws.onopen = () => {
-                console.log('WS Connected');
-                updateStatus(true);
-                loadSnapshot();
-            };
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'snapshot_update' && autoRefreshEnabled && !userIsScrolling) {
-                    loadSnapshot();
-                }
-            };
-
-            ws.onclose = () => {
-                console.log('WS Disconnected');
-                updateStatus(false);
-                setTimeout(connectWebSocket, 2000);
-            };
-        }
-
-        function updateStatus(connected) {
-            if (connected) {
-                statusDot.classList.remove('disconnected');
-                statusDot.classList.add('connected');
-                statusText.textContent = 'Live';
-            } else {
-                statusDot.classList.remove('connected');
-                statusDot.classList.add('disconnected');
-                statusText.textContent = 'Reconnecting';
-            }
-        }
-
-        // --- Rendering ---
-        async function loadSnapshot() {
-            try {
-                // Add spin animation to refresh button
-                const icon = refreshBtn.querySelector('svg');
-                icon.classList.remove('spin-anim');
-                void icon.offsetWidth; // trigger reflow
-                icon.classList.add('spin-anim');
-
-                const response = await fetch('/snapshot');
-                if (!response.ok) {
-                    if (response.status === 503) return;
-                    throw new Error('Failed to load');
-                }
-
-                const data = await response.json();
-
-                const scrollPos = chatContainer.scrollTop;
-                const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
-
-                // --- UPDATE STATS ---
-                if (data.stats) {
-                    const kbs = Math.round((data.stats.htmlSize + data.stats.cssSize) / 1024);
-                    const nodes = data.stats.nodes;
-                    const statsText = document.getElementById('statsText');
-                    if (statsText) statsText.textContent = `${nodes} Nodes · ${kbs}KB`;
-                }
-
-                // --- DARK MODE INJECTION ---
-                const darkModeOverrides = `
-                    <style>
-                        ${data.css}
-
-                        /* --- FORCE DARK MODE OVERRIDES --- */
-                        :root {
-                            --bg-app: #0f172a;
-                            --text-main: #f8fafc;
-                            --text-muted: #94a3b8;
-                            --border-color: #334155;
-                        }
-
-                        #cascade {
-                            background-color: transparent !important;
-                            color: var(--text-main) !important;
-                            font-family: 'Inter', system-ui, sans-serif !important;
-                            position: relative !important;
-                            height: auto !important;
-                            width: 100% !important;
-                        }
-
-                        #cascade * {
-                            position: static !important;
-                        }
-
-                        #cascade p, #cascade h1, #cascade h2, #cascade h3, #cascade h4, #cascade h5, #cascade span, #cascade div, #cascade li {
-                            color: inherit !important;
-                        }
-
-                        #cascade a {
-                            color: #60a5fa !important;
-                            text-decoration: underline;
-                        }
-
-                        pre, code, .monaco-editor-background, [class*="terminal"] {
-                            background-color: #1e293b !important;
-                            color: #e2e8f0 !important;
-                            font-family: 'JetBrains Mono', monospace !important;
-                            border-radius: 6px;
-                            border: 1px solid #334155;
-                        }
-                        
-                        blockquote {
-                            border-left: 3px solid #3b82f6 !important;
-                            background: rgba(59, 130, 246, 0.1) !important;
-                            color: #cbd5e1 !important;
-                            padding: 8px 12px !important;
-                            margin: 8px 0 !important;
-                        }
-
-                        table {
-                            border-collapse: collapse !important;
-                            width: 100% !important;
-                            border: 1px solid #334155 !important;
-                        }
-                        th, td {
-                            border: 1px solid #334155 !important;
-                            padding: 8px !important;
-                            color: #e2e8f0 !important;
-                        }
-
-                        ::-webkit-scrollbar {
-                            width: 0 !important;
-                        }
-                        
-                        [style*="background-color: rgb(255, 255, 255)"],
-                        [style*="background-color: white"],
-                        [style*="background: white"] {
-                            background-color: transparent !important;
-                        }
-                    </style>
-                `;
-
-                chatContent.innerHTML = darkModeOverrides + data.html;
-
-                if (isNearBottom || scrollPos === 0) {
-                    scrollToBottom();
-                } else {
-                    chatContainer.scrollTop = scrollPos;
-                }
-
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        function scrollToBottom() {
-            chatContainer.scrollTo({
-                top: chatContainer.scrollHeight,
-                behavior: 'smooth'
-            });
-        }
-
-        // --- Inputs ---
-        async function sendMessage() {
-            const message = messageInput.value.trim();
-            if (!message) return;
-
-            // Optimistic UI updates
-            const previousValue = messageInput.value;
-            messageInput.value = ''; // Clear immediately
-            messageInput.style.height = 'auto'; // Reset height
-            messageInput.blur(); // Close keyboard on mobile immediately
-
-            sendBtn.disabled = true;
-            sendBtn.style.opacity = '0.5';
-
-            try {
-                const res = await fetch('/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
-                });
-
-                // Always reload snapshot to check if message appeared
-                setTimeout(loadSnapshot, 300);
-                setTimeout(loadSnapshot, 800);
-
-                // Don't revert the input - if user sees the message in chat, it was sent
-                // Only log errors for debugging, don't show alert popups
-                if (!res.ok) {
-                    console.warn('Send response not ok, but message may have been sent:', await res.json().catch(() => ({})));
-                }
-            } catch (e) {
-                // Network error - still try to refresh in case it went through
-                console.error('Send error:', e);
-                setTimeout(loadSnapshot, 500);
-            } finally {
-                sendBtn.disabled = false;
-                sendBtn.style.opacity = '1';
-            }
-        }
-
-        // --- Event Listeners ---
-        sendBtn.addEventListener('click', sendMessage);
-
-        refreshBtn.addEventListener('click', () => {
-            // Refresh both Chat and State (Mode/Model)
-            loadSnapshot();
-            fetchAppState(); // PRIORITY: Sync from Desktop
-        });
-
-        messageInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-
-        messageInput.addEventListener('input', function () {
-            this.style.height = 'auto';
-            this.style.height = (this.scrollHeight) + 'px';
-        });
-
-        // --- Scroll Sync to Desktop ---
-        let scrollSyncTimeout = null;
-        let lastScrollSync = 0;
-        const SCROLL_SYNC_DEBOUNCE = 150; // ms between scroll syncs
-        let snapshotReloadPending = false;
-
-        async function syncScrollToDesktop() {
-            const scrollPercent = chatContainer.scrollTop / (chatContainer.scrollHeight - chatContainer.clientHeight);
-            try {
-                await fetch('/remote-scroll', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ scrollPercent })
-                });
-
-                // After scrolling desktop, reload snapshot to get newly visible content
-                // (Antigravity uses virtualized scrolling - only visible messages are in DOM)
-                if (!snapshotReloadPending) {
-                    snapshotReloadPending = true;
-                    setTimeout(() => {
-                        loadSnapshot();
-                        snapshotReloadPending = false;
-                    }, 300);
-                }
-            } catch (e) {
-                console.log('Scroll sync failed:', e.message);
-            }
-        }
-
-        chatContainer.addEventListener('scroll', () => {
-            userIsScrolling = true;
-            clearTimeout(idleTimer);
-
-            const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 120;
-            if (isNearBottom) {
-                scrollToBottomBtn.classList.remove('show');
-            } else {
-                scrollToBottomBtn.classList.add('show');
-            }
-
-            // Debounced scroll sync to desktop
-            const now = Date.now();
-            if (now - lastScrollSync > SCROLL_SYNC_DEBOUNCE) {
-                lastScrollSync = now;
-                clearTimeout(scrollSyncTimeout);
-                scrollSyncTimeout = setTimeout(syncScrollToDesktop, 100);
-            }
-
-            idleTimer = setTimeout(() => {
-                userIsScrolling = false;
-                autoRefreshEnabled = true;
-            }, 5000);
-        });
-
-        scrollToBottomBtn.addEventListener('click', () => {
-            userIsScrolling = false;
-            scrollToBottom();
-        });
-
-        // --- Quick Actions ---
-        function quickAction(text) {
-            messageInput.value = text;
-            messageInput.style.height = 'auto';
-            messageInput.style.height = messageInput.scrollHeight + 'px';
-            messageInput.focus();
-        }
-
-        // --- Stop Logic ---
-        stopBtn.addEventListener('click', async () => {
-            stopBtn.style.opacity = '0.5';
-            try {
-                const res = await fetch('/stop', { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    // alert('Stopped');
-                } else {
-                    // alert('Error: ' + data.error);
-                }
-            } catch (e) { }
-            setTimeout(() => stopBtn.style.opacity = '1', 500);
-        });
-
-
-
-        // --- Settings Logic ---
-
-        function openModal(title, options, onSelect) {
-            modalTitle.textContent = title;
-            modalList.innerHTML = '';
-            options.forEach(opt => {
-                const div = document.createElement('div');
-                div.className = 'modal-option';
-                div.textContent = opt;
-                div.onclick = () => {
-                    onSelect(opt);
-                    closeModal();
-                };
-                modalList.appendChild(div);
-            });
-            modalOverlay.classList.add('show');
-        }
-
-        function closeModal() {
-            modalOverlay.classList.remove('show');
-        }
-
-        modalOverlay.onclick = (e) => {
-            if (e.target === modalOverlay) closeModal();
-        };
-
-        modeBtn.addEventListener('click', () => {
-            openModal('Select Mode', ['Fast', 'Planning'], async (mode) => {
-                modeText.textContent = 'Setting...';
-                try {
-                    const res = await fetch('/set-mode', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mode })
-                    });
-                    const data = await res.json();
-                    if (data.success) {
-                        currentMode = mode;
-                        modeText.textContent = mode;
-                        modeBtn.classList.toggle('active', mode === 'Planning');
-                    } else {
-                        alert('Error: ' + (data.error || 'Unknown'));
-                        modeText.textContent = currentMode;
-                    }
-                } catch (e) {
-                    modeText.textContent = currentMode;
-                }
-            });
-        });
-
-        modelBtn.addEventListener('click', () => {
-            openModal('Select Model', MODELS, async (model) => {
-                const prev = modelText.textContent;
-                modelText.textContent = 'Setting...';
-                try {
-                    const res = await fetch('/set-model', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ model })
-                    });
-                    const data = await res.json();
-                    if (data.success) {
-                        modelText.textContent = model;
-                    } else {
-                        alert('Error: ' + (data.error || 'Unknown'));
-                        modelText.textContent = prev;
-                    }
-                } catch (e) {
-                    modelText.textContent = prev;
-                }
-            });
-        });
-
-        // --- Viewport / Keyboard Handling ---
-        // This fixes the issue where the keyboard hides the input or layout breaks
-        if (window.visualViewport) {
-            function handleResize() {
-                // Resize the body to match the visual viewport (screen minus keyboard)
-                document.body.style.height = window.visualViewport.height + 'px';
-
-                // Scroll to bottom if keyboard opened
-                if (document.activeElement === messageInput) {
-                    setTimeout(scrollToBottom, 100);
-                }
-            }
-
-            window.visualViewport.addEventListener('resize', handleResize);
-            window.visualViewport.addEventListener('scroll', handleResize);
-            handleResize(); // Init
-        } else {
-            // Fallback for older browsers without visualViewport support
-            window.addEventListener('resize', () => {
-                document.body.style.height = window.innerHeight + 'px';
-            });
-            document.body.style.height = window.innerHeight + 'px'; // Init
-        }
-
-        // --- Remote Click Logic (Thinking/Thought) ---
-        chatContainer.addEventListener('click', async (e) => {
-            // Strategy: Check if the clicked element OR its parent contains "Thought" or "Thinking" text.
-            // This handles both opening (collapsed) and closing (expanded) states.
-
-            // 1. Find the nearest container that might be the "Thought" block
-            const target = e.target.closest('div, span, p, summary, button, details');
-            if (!target) return;
-
-            const text = target.innerText || '';
-
-            // Check if this looks like a thought toggle (matches "Thought for Xs" or "Thinking" patterns)
-            // Also match the header of expanded thoughts which may have more content
-            const isThoughtToggle = /Thought|Thinking/i.test(text) && text.length < 500;
-
-            if (isThoughtToggle) {
-                // Visual feedback - briefly dim the clicked element
-                target.style.opacity = '0.5';
-                setTimeout(() => target.style.opacity = '1', 300);
-
-                // Extract just the first line for matching (e.g., "Thought for 3s")
-                const firstLine = text.split('\n')[0].trim();
-
-                try {
-                    const response = await fetch('/remote-click', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            selector: target.tagName.toLowerCase(),
-                            index: 0,  // Usually there's only one visible thought toggle
-                            textContent: firstLine  // Use first line for more reliable matching
-                        })
-                    });
-
-                    // Reload snapshot multiple times to catch the UI change
-                    // Desktop animation takes time, so we poll a few times
-                    setTimeout(loadSnapshot, 400);   // Quick check
-                    setTimeout(loadSnapshot, 800);   // After animation starts
-                    setTimeout(loadSnapshot, 1500);  // After animation completes
-                } catch (e) {
-                    console.error('Remote click failed:', e);
-                }
-            }
-        });
-
-        // --- Init ---
-        connectWebSocket();
-        // Sync state initially and every 5 seconds to keep phone in sync with desktop changes
-        fetchAppState();
-        setInterval(fetchAppState, 5000);
-
-    </script>
+    <script src="app.js"></script>
 </body>
 
 </html>
