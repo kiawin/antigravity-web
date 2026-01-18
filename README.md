@@ -1,138 +1,68 @@
-# Antigravity Phone Connect 📱
+# Antigravity Web 📱
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+A reactive web interface for monitoring and controlling your [Antigravity](https://antigravity.google) AI sessions remotely.
 
-**Antigravity Phone Connect** is a high-performance, real-time mobile monitor and remote control for your Antigravity AI sessions. It allows you to step away from your desk while keeping full sight and control over your AI's thinking process and generations.
+## What It Does
 
-![Antigravity Phone Connect](./assets/hero_showcase.png)
+Connect to your Antigravity IDE from your browser via Chrome DevTools Protocol (CDP). View conversation history, send messages, and control your AI sessions without being at your desk.
 
-**Note:** This project is a refined fork/extension based on the original [Antigravity Shit-Chat](https://github.com/gherghett/Antigravity-Shit-Chat) by gherghett.
+## Supported Features ✅
 
----
+- **Real-time conversation mirroring** — See AI responses as they stream
+- **Send messages** — Type and submit prompts from your browser
+- **Stop generation** — Halt AI responses mid-stream
+- **View conversation history** — Browse and switch between conversations
+- **Expand/collapse thinking blocks** — Toggle AI reasoning visibility
+- **View artifacts** — Open implementation plans, walkthroughs, and other artifacts
+- **Model & mode switching** — Change between Gemini/Claude/GPT and Fast/Planning modes
+- **Quota display** — View usage limits via [ag-quota](https://open-vsx.org/extension/henrikdev/ag-quota) extension
 
-## 🚀 Quick Start
+## Not Supported ❌
 
-### Windows
+- **Code files** — Cannot view or edit code files
+- **Terminal access** — No terminal control
+- **Voice input** — No speech-to-text support
+- **Multi-session** — One IDE connection at a time
 
-1.  **Double-click `start_ag_phone_connect.bat`**
-    The script will:
-    - Verify Node.js is installed.
-    - Automatically install dependencies (`npm install`) if they are missing.
-    - Detect SSL certificates and show `https://` or `http://` accordingly.
-    - Display your **exact IP Address** (e.g., `https://192.168.1.5:3000`).
-    - Provide tips for context menu setup and HTTPS enablement.
+## Quick Start
 
-2.  **Connect Your Phone**
-    - Ensure your phone is on the **same Wi-Fi network** as your PC.
-    - Open your mobile browser and enter the **URL shown in the terminal**.
-    - If using HTTPS: Accept the self-signed certificate warning on first visit.
+1. **Start the server:**
+   ```bash
+   # macOS/Linux
+   ./start.sh
 
-3.  **Launch Antigravity** (if not already running)
-    - **Recommended**: Run **`install_context_menu.bat`** and select **[1] Install**. Then, simply right-click any project folder and select **"Open with Antigravity (Debug)"**.
-    - Otherwise, run manually: `antigravity . --remote-debugging-port=9000`
+   # Windows
+   start.bat
+   ```
 
----
+2. **Launch Antigravity with debugging enabled:**
+   ```bash
+   antigravity . --remote-debugging-port=9000
+   ```
 
-### macOS / Linux
+3. **Open the URL shown in terminal on your browser** (within same network, or via tailscale)
 
-1.  **Run the launcher script**
-    ```bash
-    chmod +x start_ag_phone_connect.sh
-    ./start_ag_phone_connect.sh
-    ```
-    The script will:
-    - Verify Node.js is installed.
-    - Automatically install dependencies.
-    - Detect SSL certificates and display the appropriate protocol.
-    - Display your **exact IP Address**.
-    - *(Linux only)* Provide tips for Nautilus/GNOME context menu management.
+## Related Projects 🙏
 
-2.  **Connect Your Phone**
-    - Ensure your phone is on the **same Wi-Fi network**.
-    - Open your mobile browser and enter the **URL shown in the terminal**.
+This project exists alongside other community-built Antigravity mobile tools:
 
-3.  **Launch Antigravity** (if not already running)
-    ```bash
-    antigravity . --remote-debugging-port=9000
-    ```
+- [antigravity_phone_chat](https://github.com/krishnakanthb13/antigravity_phone_chat) by @krishnakanthb13 — Original phone chat implementation
+- [AntigravityMobile](https://github.com/Almoksha/AntigravityMobile) by @Almoksha — Alternative mobile client
+- [Antigravity-Shit-Chat](https://github.com/gherghett/Antigravity-Shit-Chat) by @gherghett — The project this was originally forked from
+- [ag_bridge](https://github.com/Mario4272/ag_bridge) by @Mario4272 — Bridge implementation
 
----
+## About This Code 🤖
 
-## 🔒 Enabling HTTPS (Recommended)
+**Full transparency:** All code in this repository was written by AI. I ([@kiawin](https://github.com/kiawin)) serve as the supervisor — reviewing, testing, and guiding the AI's development, but not writing the code myself.
 
-For a secure connection without the browser warning icon:
+## Disclaimer
 
-### Option 1: Command Line
-```bash
-node generate_ssl.js
-```
-- Uses **OpenSSL** if available (includes your IP in certificate)
-- Falls back to **Node.js crypto** if OpenSSL not found
-- Creates certificates in `./certs/` directory
+This project is provided as-is, without any warranty. Use at your own risk.
 
-### Option 2: Web UI
-1. Start the server on HTTP
-2. Look for the yellow **"⚠️ Not Secure"** banner
-3. Click **"Enable HTTPS"** button
-4. Restart the server when prompted
+The author is not responsible for any damage or loss of data that may occur as a result of using this project.
 
-### After Generating:
-1. **Restart the server** - it will automatically detect and use HTTPS.
-2. **On your phone's first visit**:
-   - You'll see a security warning (normal for self-signed certs).
-   - Tap **"Advanced"** → **"Proceed to site"**.
-   - The warning won't appear again!
-
----
-
-### macOS: Adding Right-Click "Quick Action" (Optional)
-
-Since macOS requires Automator for context menu entries, follow these steps manually:
-
-1.  Open **Automator** (Spotlight → type "Automator").
-2.  Click **File → New** and select **Quick Action**.
-3.  At the top, set:
-    - "Workflow receives current" → **folders**
-    - "in" → **Finder**
-4.  In the left sidebar, search for **"Run Shell Script"** and drag it to the right pane.
-5.  Set "Shell" to `/bin/zsh` and "Pass input" to **as arguments**.
-6.  Paste this script:
-    ```bash
-    cd "$1"
-    antigravity . --remote-debugging-port=9000
-    ```
-7.  **Save** the Quick Action with a name like `Open with Antigravity (Debug)`.
-8.  Now you can right-click any folder in Finder → **Quick Actions → Open with Antigravity (Debug)**.
-
----
-
-## ✨ Features
-
-- **🔒 HTTPS Support**: Secure connections with self-signed SSL certificates.
-- **Real-Time Mirroring**: 1-second polling interval for near-instant sync.
-- **Remote Control**: Send messages, stop generations, and switch Modes (Fast/Planning) or Models (Gemini/Claude/GPT) directly from your phone.
-- **Scroll Sync**: When you scroll on your phone, the desktop Antigravity scrolls too!
-- **Thought Expansion**: Tap on "Thinking..." or "Thought" blocks on your phone to remotely expand/collapse them.
-- **Smart Sync**: Bi-directional synchronization ensures your phone always shows the current Model and Mode selected on your desktop.
-- **Premium Mobile UI**: A sleek, dark-themed interface optimized for touch interaction.
-- **Context Menu Management**: Dedicated scripts to **Install, Remove, Restart, or Backup** your Right-Click integrations.
-- **Health Monitoring**: Built-in `/health` endpoint for server status checks.
-- **Graceful Shutdown**: Clean exit on Ctrl+C, closing all connections properly.
-- **Zero-Config**: The launch scripts handle the heavy lifting of environment setup.
-
----
-
-## 📂 Documentation
-
-For more technical details, check out:
-- [**Code Documentation**](CODE_DOCUMENTATION.md) - Architecture, Data Flow, and API.
-- [**Security Guide**](SECURITY.md) - HTTPS setup, certificate warnings, and security model.
-- [**Design Philosophy**](DESIGN_PHILOSOPHY.md) - Why it was built this way.
-- [**Contributing**](CONTRIBUTING.md) - Guidelines for developers.
-
----
+This repository is opinionated and may not be suitable for everyone. It is recommended to use it as a reference for building your own Antigravity web interface.
 
 ## License
 
-Licensed under the [GNU GPL v3](LICENSE).  
-Copyright (C) 2026 **Krishna Kanth B** (@krishnakanthb13)
+[GNU GPL v3](LICENSE)
