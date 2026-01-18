@@ -1299,6 +1299,13 @@ async function createNewConversation(cdp) {
             
             if (btn) {
                 btn.click();
+                
+                // Ensure the agent panel's parent is visible
+                const agentPanel = document.getElementById('antigravity.agentPanel');
+                if (agentPanel && agentPanel.parentElement) {
+                    agentPanel.parentElement.style.display = 'block';
+                }
+                
                 return { success: true };
             }
             
@@ -1319,6 +1326,13 @@ async function createNewConversation(cdp) {
 
             if (plusBtn) {
                 plusBtn.click();
+                
+                // Ensure the agent panel's parent is visible
+                const agentPanel = document.getElementById('antigravity.agentPanel');
+                if (agentPanel && agentPanel.parentElement) {
+                    agentPanel.parentElement.style.display = 'block';
+                }
+                
                 return { success: true, method: 'fallback_plus' };
             }
 
@@ -1639,6 +1653,13 @@ async function selectConversation(cdp, { index, title }) {
                     
                     if (target) {
                         target.click();
+                        
+                        // Ensure the agent panel's parent is visible
+                        const agentPanel = document.getElementById('antigravity.agentPanel');
+                        if (agentPanel && agentPanel.parentElement) {
+                            agentPanel.parentElement.style.display = 'block';
+                        }
+                        
                         return { success: true };
                     }
                     return { error: 'Item not found in list' };

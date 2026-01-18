@@ -715,11 +715,7 @@ async function openConversationModal() {
                 }
 
                 // Force a snapshot refresh
-                setTimeout(async () => {
-                    const snapRes = await fetch('/snapshot');
-                    const snapData = await snapRes.json();
-                    if (snapData) renderSnapshot(snapData);
-                }, 1000);
+                setTimeout(loadSnapshot, 1000);
 
             } catch (e) {
                 alert('Failed to switch conversation');
