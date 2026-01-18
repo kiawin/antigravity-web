@@ -134,54 +134,110 @@ async function connectCDP(url) {
 
 // Capture chat snapshot
 async function captureSnapshot(cdp) {
-    const CAPTURE_SCRIPT = `(() => {
-        const cascade = document.getElementById('cascade');
-        if (!cascade) return { error: 'cascade not found' };
-        
-        const cascadeStyles = window.getComputedStyle(cascade);
-        
-        // Find the main scrollable container
-        const scrollContainer = cascade.querySelector('.overflow-y-auto, [data-scroll-area]') || cascade;
-        const scrollInfo = {
-            scrollTop: scrollContainer.scrollTop,
-            scrollHeight: scrollContainer.scrollHeight,
-            clientHeight: scrollContainer.clientHeight,
-            scrollPercent: scrollContainer.scrollTop / (scrollContainer.scrollHeight - scrollContainer.clientHeight) || 0
-        };
-        
-        // Clone cascade to modify it without affecting the original
-        const clone = cascade.cloneNode(true);
-        
-        // Remove the input box / chat window (last direct child div containing contenteditable)
-        const inputContainer = clone.querySelector('[contenteditable="true"]')?.closest('div[id^="cascade"] > div');
-        if (inputContainer) {
-            inputContainer.remove();
-        }
-        
-        const html = clone.outerHTML;
-        
-        let allCSS = '';
-        for (const sheet of document.styleSheets) {
-            try {
-                for (const rule of sheet.cssRules) {
-                    allCSS += rule.cssText + '\\n';
-                }
-            } catch (e) { }
-        }
-        
-        return {
-            html: html,
-            css: allCSS,
-            backgroundColor: cascadeStyles.backgroundColor,
-            color: cascadeStyles.color,
-            fontFamily: cascadeStyles.fontFamily,
-            scrollInfo: scrollInfo,
-            stats: {
-                nodes: clone.getElementsByTagName('*').length,
-                htmlSize: html.length,
-                cssSize: allCSS.length
+    const CAPTURE_SCRIPT = `(async () => {
+        try {
+            const cascade = document.getElementById('cascade');
+            if (!cascade) return { error: 'cascade not found' };
+            
+            const cascadeStyles = window.getComputedStyle(cascade);
+            
+            // Find the main scrollable container
+            const scrollContainer = cascade.querySelector('.overflow-y-auto, [data-scroll-area]') || cascade;
+            const scrollInfo = {
+                scrollTop: scrollContainer.scrollTop,
+                scrollHeight: scrollContainer.scrollHeight,
+                clientHeight: scrollContainer.clientHeight,
+                scrollPercent: scrollContainer.scrollTop / (scrollContainer.scrollHeight - scrollContainer.clientHeight) || 0
+            };
+            
+            // Clone cascade to modify it without affecting the original
+            const clone = cascade.cloneNode(true);
+            
+            // Remove the input box / chat window (last direct child div containing contenteditable)
+            const inputContainer = clone.querySelector('[contenteditable="true"]')?.closest('div[id^="cascade"] > div');
+            if (inputContainer) {
+                inputContainer.remove();
             }
-        };
+            
+            const html = clone.outerHTML;
+            
+            let allCSS = '';
+            for (const sheet of document.styleSheets) {
+                try {
+                    for (const rule of sheet.cssRules) {
+                        allCSS += rule.cssText + '\\n';
+                    }
+                } catch (e) { }
+            }
+
+            // Extract ALL computed theme variables from body to ensure we don't miss anything
+            const themeVars = {};
+            const bodyComputed = window.getComputedStyle(document.body);
+            for (let i = 0; i < bodyComputed.length; i++) {
+                const prop = bodyComputed[i];
+                if (prop.startsWith('--')) {
+                    themeVars[prop] = bodyComputed.getPropertyValue(prop);
+                }
+            }
+
+            // Extract SVG icons by their Lucide class names
+            const icons = {};
+            const svgElements = document.querySelectorAll('svg.lucide, svg[data-icon]');
+            svgElements.forEach(svg => {
+                // Try to get name from lucide class (e.g., "lucide-history" -> "history")
+                const classes = svg.className.baseVal || svg.className || '';
+                const lucideMatch = classes.match(/lucide-([a-z-]+)/);
+                if (lucideMatch) {
+                    const name = lucideMatch[1]; // e.g., "history", "arrow-right"
+                    if (!icons[name]) {
+                        icons[name] = svg.outerHTML;
+                    }
+                }
+                // Also try data-icon attribute
+                const dataIcon = svg.getAttribute('data-icon');
+                if (dataIcon && !icons[dataIcon]) {
+                    icons[dataIcon] = svg.outerHTML;
+                }
+            });
+
+            // Extract File Icon CSS and Fonts (without inlining to keep server responsive)
+            let fileIconCss = '';
+            for (const sheet of document.styleSheets) {
+                try {
+                    for (const rule of sheet.cssRules) {
+                        // Use numeric 5 for FONT_FACE_RULE to be safe
+                        if (rule.type === 5 || 
+                           /file-icon|codicon|monaco-icon-label/.test(rule.selectorText)) {
+                            fileIconCss += rule.cssText + '\\n';
+                        }
+                    }
+                } catch (e) { }
+            }
+            
+            // Extract Conversation Title
+            const titleEl = document.querySelector('p.text-ide-sidebar-title-color');
+            const conversationTitle = titleEl ? titleEl.textContent.trim() : null;
+
+            return {
+                html: html,
+                css: allCSS,
+                themeVars: themeVars,
+                icons: icons,
+                conversationTitle: conversationTitle,
+                fileIconCss: fileIconCss,
+                backgroundColor: cascadeStyles.backgroundColor,
+                color: cascadeStyles.color,
+                fontFamily: cascadeStyles.fontFamily,
+                scrollInfo: scrollInfo,
+                stats: {
+                    nodes: clone.getElementsByTagName('*').length,
+                    htmlSize: html.length,
+                    cssSize: allCSS.length
+                }
+            };
+        } catch (err) {
+            return { error: err.toString() };
+        }
     })()`;
 
     for (const ctx of cdp.contexts) {
@@ -189,6 +245,7 @@ async function captureSnapshot(cdp) {
             const result = await cdp.call("Runtime.evaluate", {
                 expression: CAPTURE_SCRIPT,
                 returnByValue: true,
+                awaitPromise: true,
                 contextId: ctx.id
             });
 
@@ -199,6 +256,262 @@ async function captureSnapshot(cdp) {
     }
 
     return null;
+}
+
+// Capture artifact content (e.g., implementation plan)
+// Strategy: Click the "Open" button in the IDE, wait for artifact to load, then capture
+async function captureArtifactContent(cdp, { buttonText, artifactTitle, isFile }) {
+    // Step 1: Click the "Open" button for the SPECIFIC artifact
+    const CLICK_SCRIPT = `(async () => {
+        try {
+            const targetTitle = '${artifactTitle || ''}';
+            
+            // Find all artifact containers (rounded-md with Open buttons)
+            const containers = Array.from(document.querySelectorAll('.rounded-md'));
+            
+            for (const container of containers) {
+                // Check if this container has the matching title
+                const titleSpan = container.querySelector('.break-all');
+                const title = titleSpan ? titleSpan.textContent.trim() : '';
+                
+                if (targetTitle && title !== targetTitle) {
+                    continue; // Skip if title doesn't match
+                }
+                
+                // Find the Open button in this container
+                const openBtn = Array.from(container.querySelectorAll('button'))
+                    .find(btn => btn.textContent.trim() === '${buttonText}');
+                
+                if (openBtn) {
+                    openBtn.click();
+                    return { clicked: true, title: title };
+                }
+            }
+            
+            return { error: 'No matching Open button found for: ' + targetTitle };
+        } catch (e) {
+            return { error: e.toString() };
+        }
+    })()`;
+
+    // Step 2: Capture artifact content (after click)
+    // For files, we extract the URI to read from disk. For artifacts, we capture DOM.
+    const CAPTURE_SCRIPT = `(async () => {
+        try {
+            const debug = { strategy: '' };
+            const isFile = ${!!isFile};
+            const targetTitle = "${artifactTitle || ''}";
+
+            if (isFile) {
+                const editors = Array.from(document.querySelectorAll('.editor-instance'));
+                const targetEditor = editors.find(el => {
+                     const label = el.getAttribute('aria-label') || '';
+                     const uri = el.getAttribute('data-uri') || '';
+                     return label === targetTitle || uri.endsWith('/' + targetTitle);
+                });
+
+                if (targetEditor) {
+                     debug.strategy = 'file-editor-uri';
+                     const uri = targetEditor.getAttribute('data-uri');
+                     return {
+                        success: true,
+                        isFile: true,
+                        uri: uri,
+                        debug: debug
+                     };
+                }
+            }
+            
+            // Look for artifact-view containers (should now be visible after click)
+            const artifactContainers = Array.from(document.querySelectorAll('[class*="artifact-view"]'))
+                .filter(el => el.offsetParent !== null);
+            
+            debug.artifactViewsFound = artifactContainers.length;
+            
+            if (artifactContainers.length > 0) {
+                const artifactContainer = artifactContainers[0];
+                debug.strategy = 'direct-artifact-view';
+                
+                const classMatch = artifactContainer.className.match(/editor-pane-parent-class-([\\w-]+)/);
+                const artifactId = classMatch ? classMatch[1] : null;
+                
+                const clone = artifactContainer.cloneNode(true);
+                
+                return {
+                    success: true,
+                    artifactId: artifactId,
+                    html: clone.innerHTML,
+                    className: artifactContainer.className,
+                    dimensions: {
+                        width: artifactContainer.offsetWidth,
+                        height: artifactContainer.offsetHeight
+                    },
+                    debug: debug
+                };
+            }
+            
+            return { error: 'No artifact view found after click', debug: debug };
+        } catch (e) {
+            return { error: e.toString() };
+        }
+    })()`;
+
+    // Execute click in each context until one succeeds
+    let clickResult = null;
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: CLICK_SCRIPT,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value?.clicked) {
+                clickResult = res.result.value;
+                break;
+            }
+        } catch (e) { }
+    }
+
+    if (!clickResult) {
+        return { error: 'Could not click Open button in any context' };
+    }
+
+    // Wait for artifact/file to render
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Execute capture
+    let captureResult = null;
+    let captureErrors = [];
+
+    // Retry logic for capture (wait for render)
+    for (let attempt = 0; attempt < 3; attempt++) {
+        for (const ctx of cdp.contexts) {
+            try {
+                const res = await cdp.call("Runtime.evaluate", {
+                    expression: CAPTURE_SCRIPT,
+                    returnByValue: true,
+                    awaitPromise: true,
+                    contextId: ctx.id
+                });
+                if (res.result?.value?.success) {
+                    captureResult = res.result.value;
+                    break;
+                }
+                if (res.result?.value?.error) {
+                    captureErrors.push(res.result.value.error);
+                }
+            } catch (e) {
+                captureErrors.push(e.message);
+            }
+        }
+        if (captureResult) break;
+        await new Promise(r => setTimeout(r, 500));
+    }
+
+    if (!captureResult) {
+        // Debug info
+        return {
+            error: 'Capture failed. Errors: ' + captureErrors.join(', '),
+            clickResult: clickResult
+        };
+    }
+
+    // Step 3: Post-process result
+    if (captureResult.isFile && captureResult.uri) {
+        try {
+            // Read file content from disk
+            const fileUrl = captureResult.uri;
+            let filePath;
+            if (fileUrl.startsWith('file://')) {
+                filePath = fileURLToPath(fileUrl);
+            } else {
+                filePath = fileUrl; // Fallback
+            }
+
+            if (fs.existsSync(filePath)) {
+                const content = fs.readFileSync(filePath, 'utf8');
+                // Construct HTML with header for correct UI rendering
+                // Escape HTML content
+                const safeContent = content
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+
+                const fileName = filePath.split('/').pop();
+
+                const html = `
+                    <div class="flex flex-col h-full bg-[#1e1e1e] text-[#d4d4d4]">
+                        <div class="flex items-center justify-between px-4 py-2 border-b border-[#2b2b2b] bg-[#252526]">
+                            <span class="font-medium text-sm flex items-center gap-2">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 text-blue-400">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                                ${fileName}
+                            </span>
+                            <!-- Close buttons will be injected here by app.js -->
+                        </div>
+                        <div class="flex-1 overflow-auto p-4">
+                            <pre><code class="font-mono text-sm leading-relaxed">${safeContent}</code></pre>
+                        </div>
+                    </div>
+                 `;
+
+                return {
+                    success: true,
+                    html: html,
+                    className: 'file-view-container'
+                };
+            } else {
+                return { error: 'File read failed: Path not found ' + filePath };
+            }
+        } catch (e) {
+            return { error: 'File read error: ' + e.message };
+        }
+    }
+
+    return captureResult;
+}
+
+// Fetch Asset via CDP (for proxying vscode-file://)
+async function fetchAssetViaCDP(cdp, url) {
+    // The script must return the base64 data and verify content type
+    const SCRIPT = `(async () => {
+        try {
+            const response = await fetch("${url}");
+            if (!response.ok) return { error: 'Fetch failed: ' + response.status };
+            const blob = await response.blob();
+            
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve({
+                    success: true,
+                    data: reader.result.split(',')[1], // Base64 data without prefix
+                    type: response.headers.get('content-type') || blob.type || 'application/octet-stream'
+                });
+                reader.onerror = () => resolve({ error: 'Reader failed' });
+                reader.readAsDataURL(blob);
+            });
+        } catch (e) {
+            return { error: e.toString() };
+        }
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: SCRIPT,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value?.success) return res.result.value;
+        } catch (e) { }
+    }
+    return { error: 'Asset fetch failed in all contexts' };
 }
 
 // Inject message into Antigravity
@@ -657,6 +970,286 @@ async function getAppState(cdp) {
     return { error: 'Context failed' };
 }
 
+async function checkAgentPanelVisibility(cdp) {
+    const SCRIPT = `(() => {
+        const panel = document.getElementById('antigravity.agentPanel');
+        if (!panel) return { found: false, error: 'Panel not found' };
+        const parent = panel.parentElement;
+        const target = parent || panel;
+        const style = window.getComputedStyle(target);
+        return { 
+            found: true,
+            visible: style.display !== 'none',
+            display: style.display
+        };
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const result = await cdp.call("Runtime.evaluate", {
+                expression: SCRIPT,
+                returnByValue: true,
+                contextId: ctx.id
+            });
+            if (result.result?.value) return result.result.value;
+        } catch (e) { }
+    }
+    return { error: 'Context failed' };
+}
+
+// Ensure Agent Panel is Visible
+async function ensureAgentPanelVisible(cdp) {
+    const SCRIPT = `(() => {
+        const panel = document.getElementById('antigravity.agentPanel');
+        if (!panel) return { success: false, error: 'Panel not found' };
+        const parent = panel.parentElement;
+        const target = parent || panel;
+        const prevDisplay = target.style.display;
+        target.style.display = 'block';
+        return { 
+            success: true, 
+            previousDisplay: prevDisplay,
+            newDisplay: 'block'
+        };
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const result = await cdp.call("Runtime.evaluate", {
+                expression: SCRIPT,
+                returnByValue: true,
+                contextId: ctx.id
+            });
+            if (result.result?.value) return result.result.value;
+        } catch (e) { }
+    }
+    return { error: 'Context failed' };
+}
+
+// Get Conversation History
+async function getConversations(cdp) {
+    // Phase 1: Click the button (in whatever context it exists)
+    let buttonClicked = false;
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: `(async () => {
+                    const btn = document.querySelector('[data-past-conversations-toggle="true"]');
+                    if (btn) {
+                        btn.click();
+                        return true;
+                    }
+                    return false;
+                })()`,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value) {
+                buttonClicked = true;
+                break;
+            }
+        } catch (e) { }
+    }
+
+    if (!buttonClicked) {
+        // It might be that the list is ALREADY open, so we shouldn't fail just yet.
+        // But if we couldn't even find the button to toggle it, that's notable.
+        // We'll proceed to Phase 2 just in case.
+    }
+
+    // Phase 2: Find the overlay (in whatever context it exists)
+    // Retry logic allowing for cross-context search
+    for (let attempt = 0; attempt < 20; attempt++) {
+        // Wait a bit between attempts (and initial wait)
+        await new Promise(r => setTimeout(r, 150));
+
+        for (const ctx of cdp.contexts) {
+            try {
+                const EXTRACT_SCRIPT = `(async () => {
+                    const overlay = document.querySelector('.jetski-fast-pick');
+                    if (!overlay || overlay.offsetHeight === 0) return null;
+
+                    // Click "Show more" buttons iteratively until none remain
+                    // We loop to catch nested or multiple "Show more" triggers
+                    for(let i=0; i<5; i++) { // Limit to 5 expansions to prevent infinite loops
+                        const showButtons = Array.from(overlay.querySelectorAll('div.text-quickinput-foreground.text-sm.cursor-pointer'))
+                            .filter(el => el.textContent.includes('Show') && el.textContent.includes('more'));
+                            
+                        if (showButtons.length === 0) break;
+                        
+                        for (const btn of showButtons) {
+                            btn.click();
+                            // Small wait between clicks to allow DOM update
+                            await new Promise(r => setTimeout(r, 200));
+                        }
+                        // Wait for expansion
+                         await new Promise(r => setTimeout(r, 300));
+                    }
+
+                    // Extract conversations with context-aware workspace tracking
+                    // We select both headers and items to process them in order
+                    const allElements = overlay.querySelectorAll('div.text-quickinput-foreground.text-xs, div.px-2\\\\.5.cursor-pointer');
+                    const conversations = [];
+                    
+                    let currentSectionWorkspace = '';
+                    
+                    let itemIndex = 0;
+                    allElements.forEach(el => {
+                        // Check if Header
+                        if (el.classList.contains('text-quickinput-foreground') && el.classList.contains('text-xs')) {
+                            const text = el.textContent || '';
+                            
+                            // Check for "Current"
+                            if (text.includes('Current')) {
+                                currentSectionWorkspace = 'Current Workspace';
+                                return;
+                            }
+
+                            // Matches "Running in X", "Recent in X"
+                            const match = text.match(/(?:Running|Recent) in (.+)/i);
+                            if (match) {
+                                currentSectionWorkspace = match[1].trim();
+                            }
+                            return;
+                        }
+
+                        // Must be an Item
+                        // Double check class just in case selector leakage
+                        if (!el.classList.contains('cursor-pointer')) return;
+
+                        const titleSpan = el.querySelector('span.text-sm span');
+                        const timeSpan = el.querySelector('span.text-xs.opacity-50.ml-4');
+                        const wsSpan = el.querySelector('span.text-xs.opacity-50.truncate');
+                        
+                        // Use explicit workspace if present, otherwise fall back to section workspace
+                        const workspace = wsSpan?.textContent?.trim() || currentSectionWorkspace;
+
+                        conversations.push({
+                            index: itemIndex++, // Re-index locally
+                            title: titleSpan?.textContent?.trim() || 'Untitled',
+                            time: timeSpan?.textContent?.trim() || '',
+                            workspace: workspace
+                        });
+                    });
+
+                    // Close (Escape)
+                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+                    return { success: true, conversations, defaultWorkspace: currentSectionWorkspace };
+                })()`;
+
+                const res = await cdp.call("Runtime.evaluate", {
+                    expression: EXTRACT_SCRIPT,
+                    returnByValue: true,
+                    awaitPromise: true,
+                    contextId: ctx.id
+                });
+
+                if (res.result?.value?.success) {
+                    return res.result.value;
+                }
+            } catch (e) { }
+        }
+    }
+
+    return { error: buttonClicked ? 'Button clicked but list not found (timeout)' : 'History button not found' };
+}
+
+// Select a Conversation
+async function selectConversation(cdp, { index, title }) {
+    const safeTitle = JSON.stringify(title);
+
+    // Phase 1: Open List
+    let buttonClicked = false;
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: `(async () => {
+                    const btn = document.querySelector('[data-past-conversations-toggle="true"]');
+                    if (btn) {
+                        btn.click();
+                        return true;
+                    }
+                    return false;
+                })()`,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value) {
+                buttonClicked = true;
+                break;
+            }
+        } catch (e) { }
+    }
+
+    // Phase 2: Find & Click Item
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(r => setTimeout(r, 150));
+
+        for (const ctx of cdp.contexts) {
+            try {
+                const SELECT_SCRIPT = `(async () => {
+                    const overlay = document.querySelector('.jetski-fast-pick');
+                    if (!overlay || overlay.offsetHeight === 0) return null;
+
+                    // Click "Show more" iteratively
+                    for(let i=0; i<5; i++) {
+                        const showButtons = Array.from(overlay.querySelectorAll('div.text-quickinput-foreground.text-sm.cursor-pointer'))
+                            .filter(el => el.textContent.includes('Show') && el.textContent.includes('more'));
+                            
+                        if (showButtons.length === 0) break;
+                        
+                        for (const btn of showButtons) {
+                            btn.click();
+                            await new Promise(r => setTimeout(r, 200));
+                        }
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+
+                    // Find target
+                    const items = overlay.querySelectorAll('div.px-2\\\\.5.cursor-pointer');
+                    let target = null;
+                    
+                    const searchTitle = ${safeTitle};
+                    if (searchTitle) {
+                        items.forEach(item => {
+                            const titleEl = item.querySelector('span.text-sm span');
+                            if (titleEl?.textContent?.trim() === searchTitle) {
+                                target = item;
+                            }
+                        });
+                    }
+                    
+                    if (!target && ${index} !== undefined) {
+                        target = items[${index}];
+                    }
+                    
+                    if (target) {
+                        target.click();
+                        return { success: true };
+                    }
+                    return { error: 'Item not found in list' };
+                })()`;
+
+                const res = await cdp.call("Runtime.evaluate", {
+                    expression: SELECT_SCRIPT,
+                    returnByValue: true,
+                    awaitPromise: true,
+                    contextId: ctx.id
+                });
+
+                if (res.result?.value?.success) return res.result.value;
+                // If we found the list but not the item, that's a specific error we might generally encounter
+                // But we'll keep retrying in case the list is still rendering items
+            } catch (e) { }
+        }
+    }
+
+    return { error: buttonClicked ? 'List opened but conversation not found' : 'History button not found' };
+}
+
 // Simple hash function
 function hashString(str) {
     let hash = 0;
@@ -677,6 +1270,16 @@ async function initCDP() {
     console.log('🔌 Connecting to CDP...');
     cdpConnection = await connectCDP(cdpInfo.url);
     console.log(`✅ Connected! Found ${cdpConnection.contexts.length} execution contexts\n`);
+
+    // Check and ensure agent panel is visible
+    const panelStatus = await checkAgentPanelVisibility(cdpConnection);
+    if (panelStatus.found && !panelStatus.visible) {
+        console.log('⚠️ Agent panel hidden, making visible...');
+        await ensureAgentPanelVisible(cdpConnection);
+        console.log('✅ Agent panel now visible');
+    } else if (!panelStatus.found) {
+        console.log('ℹ️ Agent panel not found in current context');
+    }
 }
 
 // Background polling
@@ -824,6 +1427,54 @@ async function createServer() {
         res.json(result);
     });
 
+    // Get conversation history
+    app.get('/conversations', async (req, res) => {
+        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+        const result = await getConversations(cdpConnection);
+        res.json(result);
+    });
+
+    // Select/switch conversation
+    app.post('/select-conversation', async (req, res) => {
+        const { index, title } = req.body;
+        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+        const result = await selectConversation(cdpConnection, { index, title });
+        res.json(result);
+    });
+
+    // Get artifact content
+    app.post('/get-artifact', async (req, res) => {
+        const { buttonText = 'Open', artifactTitle, isFile } = req.body;
+        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+        const result = await captureArtifactContent(cdpConnection, { buttonText, artifactTitle, isFile });
+        res.json(result);
+    });
+
+    // Proxy Asset (vscode-file://)
+    app.get('/proxy-asset', async (req, res) => {
+        const { url } = req.query;
+        if (!url) return res.status(400).send('Missing url parameter');
+        if (!cdpConnection) return res.status(503).send('CDP not connected');
+
+        // Decode the URL before passing to CDP
+        const targetUrl = decodeURIComponent(url);
+        // Basic security check: ensure it's a vscode-file or file scheme (or whatever internal scheme used)
+        if (!targetUrl.startsWith('vscode-file://')) {
+            // Optional: Allow other schemes if needed, but start restrictive
+            // console.log('Proxy request for non-vscode URL:', targetUrl);
+        }
+
+        const result = await fetchAssetViaCDP(cdpConnection, targetUrl);
+
+        if (result.error || !result.success) {
+            return res.status(404).send(result.error || 'Asset not found');
+        }
+
+        res.set('Content-Type', result.type);
+        res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+        res.send(Buffer.from(result.data, 'base64'));
+    });
+
     // Send message
     app.post('/send', async (req, res) => {
         const { message } = req.body;
@@ -889,6 +1540,20 @@ async function main() {
         app.get('/app-state', async (req, res) => {
             if (!cdpConnection) return res.json({ mode: 'Unknown', model: 'Unknown' });
             const result = await getAppState(cdpConnection);
+            res.json(result);
+        });
+
+        // Agent Panel Visibility Check
+        app.get('/agent-panel-status', async (req, res) => {
+            if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
+            const status = await checkAgentPanelVisibility(cdpConnection);
+            res.json(status);
+        });
+
+        // Force Agent Panel Visible
+        app.post('/agent-panel-show', async (req, res) => {
+            if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
+            const result = await ensureAgentPanelVisible(cdpConnection);
             res.json(result);
         });
 
