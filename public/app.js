@@ -7,6 +7,7 @@ const APP_TITLE_DEFAULT = 'Antigravity Web';
 const UI = {
     chatContainer: document.getElementById('chatContainer'),
     chatContent: document.getElementById('chatContent'),
+    addBtn: document.getElementById('addBtn'),
     historyBtn: document.getElementById('historyBtn'),
     messageInput: document.getElementById('messageInput'),
     sendBtn: document.getElementById('sendBtn'),
@@ -38,6 +39,7 @@ let lastHash = '';
 let currentMode = 'Fast';
 let lastLoadTime = 0;
 const LOAD_DEBOUNCE_MS = 300; // Phase 3: Performance
+let isNewConversation = false; // Flag to persist title
 
 // --- Sync State (Desktop is Always Priority) ---
 async function fetchAppState() {
@@ -301,7 +303,11 @@ async function loadSnapshot() {
         const data = await response.json();
 
         // --- UPDATE TITLE FROM SNAPSHOT ---
-        if (data.conversationTitle) {
+        if (isNewConversation) {
+            // Keep the "New Conversation" title until user sends a message
+            if (UI.conversationTitleText) UI.conversationTitleText.textContent = "New Conversation";
+            if (UI.conversationHeader) UI.conversationHeader.style.display = 'flex';
+        } else if (data.conversationTitle) {
             if (UI.conversationTitleText) UI.conversationTitleText.textContent = data.conversationTitle;
             if (UI.conversationHeader) UI.conversationHeader.style.display = 'flex';
         } else {
@@ -328,9 +334,30 @@ async function loadSnapshot() {
                 UI.thinkingIndicator.style.display = 'none';
             }
 
-            // Toggle stop button visibility
-            const isGenerating = data.html.includes('input-send-button-cancel-tooltip') || data.html.includes('lucide-square');
-            UI.stopBtn.style.display = isGenerating ? 'block' : 'none';
+            // Sync Button States
+            if (data.buttonStates) {
+                // Send Button
+                if (data.buttonStates.sendDisabled) {
+                    UI.sendBtn.disabled = true;
+                    UI.sendBtn.style.opacity = '0.5';
+                } else {
+                    UI.sendBtn.disabled = false;
+                    UI.sendBtn.style.opacity = '1';
+                }
+
+                // Stop Button
+                if (data.buttonStates.stopVisible) {
+                    UI.stopBtn.style.display = 'block';
+                    UI.stopBtn.disabled = data.buttonStates.stopDisabled || false;
+                    UI.stopBtn.style.opacity = UI.stopBtn.disabled ? '0.5' : '1';
+                } else {
+                    UI.stopBtn.style.display = 'none';
+                }
+            } else {
+                // Fallback (legacy support)
+                const isGenerating = data.html.includes('input-send-button-cancel-tooltip') || data.html.includes('lucide-square');
+                UI.stopBtn.style.display = isGenerating ? 'block' : 'none';
+            }
 
             // Cleanup: Remove temporary element
             tempDiv.remove();
@@ -385,14 +412,19 @@ async function loadSnapshot() {
                 (match, url) => `url("/proxy-asset?url=${encodeURIComponent(url)}")`
             );
 
-            // Scope to container AND boost specificity to override the generic scoped CSS
-            // which contains the broken vscode-file:// URLs.
+            // Scope to container AND boost specificity to override the generic scoped CSS (for Chat)
             // Using #chatContent#chatContent gives (2,0,0) specificity vs (1,0,0) of the body styles.
-            const scopedFileIcons = scopeCssToContainer(safeIconCss, '#chatContent')
+            const scopedFileIconsChat = scopeCssToContainer(safeIconCss, '#chatContent')
                 .replace(/#chatContent/g, '#chatContent#chatContent');
 
-            if (iconStyle.textContent !== scopedFileIcons) {
-                iconStyle.textContent = scopedFileIcons;
+            // Also scope to Artifact Viewer
+            const scopedFileIconsArtifact = scopeCssToContainer(safeIconCss, '#artifactContent')
+                .replace(/#artifactContent/g, '#artifactContent#artifactContent');
+
+            const finalIconCss = scopedFileIconsChat + '\n' + scopedFileIconsArtifact;
+
+            if (iconStyle.textContent !== finalIconCss) {
+                iconStyle.textContent = finalIconCss;
             }
         }
 
@@ -418,6 +450,13 @@ async function loadSnapshot() {
                     font-size: 15px !important;
                     line-height: 1.5 !important;
                     color: ${data.color || 'var(--text-main)'};
+                }
+
+                /* Force text color on common block elements to ensure readability */
+                #chatContent p, 
+                #chatContent li,
+                #chatContent h1, #chatContent h2, #chatContent h3, #chatContent h4, #chatContent h5, #chatContent h6 {
+                     color: inherit !important;
                 }
 
                 /* Ensure code blocks are scrollable, not overflowing */
@@ -479,6 +518,57 @@ function scrollToBottom() {
     });
 }
 
+// --- Click Handlers (Delegated) ---
+UI.chatContainer.addEventListener('click', async (e) => {
+    // Check for "Expand all" or "Collapse all" buttons
+    const target = e.target.closest('[role="button"]');
+    if (target) {
+        const text = target.textContent.trim();
+        let action = null;
+
+        if (text.includes('Expand all')) {
+            action = 'expand-all';
+        } else if (text.includes('Collapse all')) {
+            action = 'collapse-all';
+        }
+
+        if (action) {
+            e.preventDefault();
+            e.stopPropagation(); // Stop immediate propagation to prevent double firing if nested
+
+            // Visual feedback
+            target.style.opacity = '0.5';
+
+            // Calculate index among all similar buttons to target the correct one
+            // We need to find all buttons with the exact same text to determine our index
+            const allButtons = Array.from(UI.chatContainer.querySelectorAll('[role="button"]'))
+                .filter(el => el.textContent.trim().includes(text)); // loose match to handle icon text issues if any
+
+            const index = allButtons.indexOf(target);
+
+            try {
+                // Send action and index to server to trigger IDE click
+                await fetch('/trigger-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action, index: index !== -1 ? index : 0 })
+                });
+
+                // Force a snapshot reload sequence to catch the update
+                setTimeout(loadSnapshot, 100);
+                setTimeout(loadSnapshot, 400);
+                setTimeout(loadSnapshot, 800);
+                setTimeout(loadSnapshot, 1500);
+            } catch (err) {
+                console.error('Failed to trigger action:', err);
+                target.style.opacity = ''; // Restore on error
+            }
+            return;
+        }
+    }
+});
+
+
 // --- Inputs ---
 async function sendMessage() {
     const message = UI.messageInput.value.trim();
@@ -492,6 +582,9 @@ async function sendMessage() {
 
     UI.sendBtn.disabled = true;
     UI.sendBtn.style.opacity = '0.5';
+
+    // Clear new conversation flag on send
+    isNewConversation = false;
 
     try {
         const res = await fetch('/send', {
@@ -619,6 +712,9 @@ async function openConversationModal() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title: conv.title, index: conv.index })
                 });
+
+                // Clear new conversation flag
+                isNewConversation = false;
 
                 // Optimistic UI update
                 if (UI.conversationTitleText) {
@@ -780,6 +876,33 @@ function showArtifactViewer(html, className) {
 // --- Event Listeners ---
 function initEventHandlers() {
     UI.sendBtn.addEventListener('click', sendMessage);
+
+    UI.addBtn?.addEventListener('click', async () => {
+        UI.addBtn.style.opacity = '0.5';
+        try {
+            // Set flag and optimistic title update
+            isNewConversation = true;
+            if (UI.conversationTitleText) UI.conversationTitleText.textContent = "New Conversation";
+            if (UI.conversationHeader) UI.conversationHeader.style.display = 'flex';
+
+            const res = await fetch('/new-conversation', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                // Force a reload of the snapshot to reflect new state
+                setTimeout(loadSnapshot, 500);
+            } else {
+                console.warn('Failed to create conversation', data.error);
+                // Revert if failed
+                isNewConversation = false;
+            }
+        } catch (e) {
+            console.error('Network error creating conversation', e);
+            // Revert if failed
+            isNewConversation = false;
+        } finally {
+            UI.addBtn.style.opacity = '1';
+        }
+    });
 
     UI.historyBtn?.addEventListener('click', openConversationModal);
 

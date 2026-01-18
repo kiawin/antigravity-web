@@ -200,6 +200,14 @@ async function captureSnapshot(cdp) {
                 }
             });
 
+            // Special handling for the "Stop" icon which might be a DIV (red square)
+            const stopBtnDiv = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
+            if (stopBtnDiv) {
+                // Return a reconstructed SVG for the mobile app to use, mimicking the red square
+                // The mobile app expects an SVG in icons.square
+                icons['square'] = '<svg viewBox="0 0 24 24" fill="currentColor" class="lucide lucide-square"><rect x="8" y="8" width="8" height="8" rx="1" fill="#ef4444" /></svg>';
+            }
+
             // Extract File Icon CSS and Fonts (without inlining to keep server responsive)
             let fileIconCss = '';
             for (const sheet of document.styleSheets) {
@@ -218,11 +226,38 @@ async function captureSnapshot(cdp) {
             const titleEl = document.querySelector('p.text-ide-sidebar-title-color');
             const conversationTitle = titleEl ? titleEl.textContent.trim() : null;
 
+            // Capture Button States
+            const buttonStates = {
+                sendDisabled: true,
+                stopDisabled: true,
+                stopVisible: false
+            };
+
+            // Check Send Button
+            const sendBtn = document.querySelector('button svg.lucide-arrow-right')?.closest('button');
+            if (sendBtn) {
+                buttonStates.sendDisabled = sendBtn.disabled;
+            }
+
+            // Check Stop Button
+            const stopBtn = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]') || 
+                           document.querySelector('button svg.lucide-square')?.closest('button');
+            
+            if (stopBtn) {
+                buttonStates.stopVisible = true;
+                // Divs might not have 'disabled' property, check class or attribute if needed, 
+                // but usually if it exists it's active. For buttons, check disabled.
+                buttonStates.stopDisabled = stopBtn.tagName === 'BUTTON' ? stopBtn.disabled : false;
+            } else {
+                buttonStates.stopVisible = false;
+            }
+
             return {
                 html: html,
                 css: allCSS,
                 themeVars: themeVars,
                 icons: icons,
+                buttonStates: buttonStates,
                 conversationTitle: conversationTitle,
                 fileIconCss: fileIconCss,
                 backgroundColor: cascadeStyles.backgroundColor,
@@ -442,14 +477,15 @@ async function captureArtifactContent(cdp, { buttonText, artifactTitle, isFile }
 
                 const fileName = filePath.split('/').pop();
 
+                // Determine icon class based on extension (simple mapping)
+                const ext = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
+                const iconClass = `file-icon ${ext}-ext-file-icon ext-file-icon`;
+
                 const html = `
                     <div class="flex flex-col h-full bg-[#1e1e1e] text-[#d4d4d4]">
                         <div class="flex items-center justify-between px-4 py-2 border-b border-[#2b2b2b] bg-[#252526]">
                             <span class="font-medium text-sm flex items-center gap-2">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 text-blue-400">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                </svg>
+                                <span class="${iconClass}" aria-hidden="true" style="width:16px; height:16px; display:inline-block"></span>
                                 ${fileName}
                             </span>
                             <!-- Close buttons will be injected here by app.js -->
@@ -549,6 +585,23 @@ async function injectMessage(cdp, text) {
             submit.click();
             return { ok:true, method:"click_submit" };
         }
+        
+        // Check for New Conversation view submit button (might have 'Submit' text hidden or 'rounded-full')
+        const allButtons = Array.from(document.querySelectorAll('button'));
+        const newViewSubmit = allButtons.find(b => {
+             // Must have arrow-right icon
+             if (!b.querySelector('svg.lucide-arrow-right')) return false;
+             // Must NOT be disabled
+             if (b.disabled) return false;
+             // Specific class check for high confidence
+             if (b.classList.contains('rounded-full')) return true;
+             return false;
+        });
+
+        if (newViewSubmit) {
+            newViewSubmit.click();
+            return { ok:true, method:"click_new_view_submit" };
+        }
 
         // Submit button not found, but text is inserted - trigger Enter key
         editor.dispatchEvent(new KeyboardEvent("keydown", { bubbles:true, key:"Enter", code:"Enter" }));
@@ -604,12 +657,19 @@ async function setMode(cdp, mode) {
                 for (let i = 0; i < 4; i++) {
                     if (!current) break;
                     const style = window.getComputedStyle(current);
-                    if (style.cursor === 'pointer' || current.tagName === 'BUTTON') {
+                    if (style.cursor === 'pointer' || current.tagName === 'BUTTON' || current.getAttribute('role') === 'button') {
                         modeBtn = current;
                         break;
                     }
                     current = current.parentElement;
                 }
+                
+                // Specific check for New Conversation view (span inside button)
+                if (modeBtn && modeBtn.tagName === 'SPAN') {
+                     const btn = modeBtn.closest('button');
+                     if (btn) modeBtn = btn;
+                }
+                
                 if (modeBtn) break;
             }
 
@@ -689,6 +749,21 @@ async function stopGeneration(cdp) {
         if (stopBtn && stopBtn.offsetParent !== null) {
             stopBtn.click();
             return { success: true, method: 'fallback_square' };
+        }
+        
+        // New Conversation View Stop Button (assuming similar structure to Submit but with square icon)
+        const newViewStop = Array.from(document.querySelectorAll('button')).find(b => {
+             const svg = b.querySelector('svg');
+             // Must have square icon or "Stop" text
+             const hasStopIcon = svg && (svg.classList.contains('lucide-square') || svg.innerHTML.includes('rect') || svg.innerHTML.includes('square'));
+             if (!hasStopIcon) return false;
+             
+             return b.classList.contains('rounded-full') && b.offsetParent !== null;
+        });
+        
+        if (newViewStop) {
+            newViewStop.click();
+            return { success: true, method: 'new_view_stop' };
         }
 
         return { error: 'No active generation found to stop' };
@@ -824,11 +899,27 @@ async function setModel(cdp, modelName) {
             let modelBtn = null;
             for (const el of candidates) {
                 let current = el;
+                
+                // 1. High-confidence check for Headless UI (New View)
+                // Text might be in a <p> or <span> inside the button
+                const headlessBtn = current.closest('button[id*="headlessui-popover-button"]');
+                if (headlessBtn) {
+                     modelBtn = headlessBtn;
+                     break;
+                }
+
                 for (let i = 0; i < 5; i++) {
                     if (!current) break;
+                    
+                    // Check for the specific structure in New View: button > p
+                    if (current.tagName === 'P' && current.parentElement?.tagName === 'BUTTON') {
+                        modelBtn = current.parentElement;
+                        break;
+                    }
+
                     if (current.tagName === 'BUTTON' || window.getComputedStyle(current).cursor === 'pointer') {
                         // Must also likely contain the chevron to be the selector, not just a label
-                        if (current.querySelector('svg.lucide-chevron-up') || current.innerText.includes('Model')) {
+                        if (current.querySelector('svg.lucide-chevron-down') || current.querySelector('svg.lucide-chevron-up') || current.innerText.includes('Model')) {
                             modelBtn = current;
                             break;
                         }
@@ -940,12 +1031,21 @@ async function getAppState(cdp) {
             // Strategy: Look for button containing a known model keyword
             const KNOWN_MODELS = ["Gemini", "Claude", "GPT"];
             const textNodes = allEls.filter(el => el.children.length === 0 && el.innerText);
+            
             const modelEl = textNodes.find(el => {
                 const txt = el.innerText;
-                // Avoids "Select Model" placeholder if possible, but usually a model is selected
-                return KNOWN_MODELS.some(k => txt.includes(k)) && 
-                       // Check if it's near a chevron (likely values in the header)
-                       el.closest('button')?.querySelector('svg.lucide-chevron-up');
+                if (!KNOWN_MODELS.some(k => txt.includes(k))) return false;
+                
+                // Check ancestors for button with chevron
+                let curr = el;
+                for(let i=0; i<4; i++) {
+                    if (!curr) break;
+                    if (curr.tagName === 'BUTTON' || curr.getAttribute('role') === 'button') {
+                         if (curr.querySelector('svg.lucide-chevron-down, svg.lucide-chevron-up')) return true;
+                    }
+                    curr = curr.parentElement;
+                }
+                return false;
             });
             
             if (modelEl) {
@@ -1021,6 +1121,153 @@ async function ensureAgentPanelVisible(cdp) {
                 contextId: ctx.id
             });
             if (result.result?.value) return result.result.value;
+        } catch (e) { }
+    }
+    return { error: 'Context failed' };
+}
+
+// Create New Conversation
+async function createNewConversation(cdp) {
+    const EXP = `(async () => {
+        try {
+            // Find the button with the specific tooltip ID
+            const btn = document.querySelector('a[data-tooltip-id="new-conversation-tooltip"]');
+            
+            if (btn) {
+                btn.click();
+                return { success: true };
+            }
+            
+            // Fallback: Look for any element acting as a "new chat" button
+            // Often has a plus icon and is in the header
+            const candidates = Array.from(document.querySelectorAll('a, button'));
+            const plusBtn = candidates.find(el => {
+                const svg = el.querySelector('svg');
+                // Check if it has a plus icon (path d often contains 'M12 5v14' or similar, or class 'lucide-plus')
+                const hasPlusIcon = svg && (
+                    svg.classList.contains('lucide-plus') || 
+                    svg.innerHTML.includes('M12 5') 
+                );
+                
+                // Usually near the conversation history or top of sidebar
+                return hasPlusIcon && el.offsetParent !== null;
+            });
+
+            if (plusBtn) {
+                plusBtn.click();
+                return { success: true, method: 'fallback_plus' };
+            }
+
+            return { error: 'New conversation button not found' };
+        } catch(e) {
+            return { error: e.toString() };
+        }
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: EXP,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value) return res.result.value;
+        } catch (e) { }
+    }
+    return { error: 'Context failed' };
+}
+
+// Trigger Generic IDE Action
+async function triggerIdeAction(cdp, action, index = 0) {
+    const EXP = `(async () => {
+        try {
+            let targetText = '';
+            if ('${action}' === 'expand-all') targetText = 'Expand all';
+            else if ('${action}' === 'collapse-all') targetText = 'Collapse all';
+            else return { error: 'Unknown action' };
+            
+            const targetIndex = ${index};
+
+            // Find all elements containing the text
+            const allEls = Array.from(document.querySelectorAll('*'));
+            const candidates = allEls.filter(el => {
+                // Must have the text directly or be a container for it
+                return el.textContent.includes(targetText);
+            });
+
+            // Filter for clickable elements (role=button or cursor pointer)
+            // or elements that contain the text and look like the target structure
+            // We want to find ALL valid targets first, then pick the one at targetIndex
+            const validTargets = candidates.filter(el => {
+                // Check exact text match on the label part if possible, 
+                // or check if it's the specific container span from the user example
+                
+                // User example: <span ... role="button">Expand all...</span>
+                if (el.getAttribute('role') === 'button' && el.textContent.trim().startsWith(targetText)) {
+                    return true;
+                }
+                
+                // Also check close parents of the text node if exact element not hit
+                if (el.textContent.trim() === targetText && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+                    // It's the text node wrapper, look up for button role
+                    if (el.closest('[role="button"]')) return true;
+                }
+                return false;
+            });
+            
+            // De-duplicate: sometimes we might catch both the inner text span AND the outer button
+            // If we have nested matches, usually the outer button is what we want.
+            // But if our filter logic is good, validTargets might just be the buttons.
+            // Let's refine: map to the closest button
+            const uniqueButtons = [];
+            validTargets.forEach(el => {
+                const btn = el.getAttribute('role') === 'button' ? el : el.closest('[role="button"]');
+                if (btn && !uniqueButtons.includes(btn)) {
+                    uniqueButtons.push(btn);
+                }
+            });
+
+            const target = uniqueButtons[targetIndex];
+            
+            // Refined search: Look specifically for the interactive element
+            let clickable = target;
+            // The uniqueButtons logic already ensures it's a button or closest button, but safety check:
+            if (target && target.getAttribute('role') !== 'button') {
+                clickable = target.closest('[role="button"]');
+            }
+
+            if (clickable) {
+                // Simulate full click sequence for better compatibility
+                const events = ['mousedown', 'mouseup', 'click'];
+                events.forEach(eventType => {
+                    const event = new MouseEvent(eventType, {
+                        view: window,
+                        bubbles: true,
+                        cancelable: true,
+                        buttons: 1
+                    });
+                    clickable.dispatchEvent(event);
+                });
+                return { success: true };
+            }
+
+            return { error: 'Action target not found' };
+
+        } catch (e) {
+            return { error: e.toString() };
+        }
+    })()`;
+
+    for (const ctx of cdp.contexts) {
+        try {
+            const res = await cdp.call("Runtime.evaluate", {
+                expression: EXP,
+                returnByValue: true,
+                awaitPromise: true,
+                contextId: ctx.id
+            });
+            if (res.result?.value) return res.result.value;
         } catch (e) { }
     }
     return { error: 'Context failed' };
@@ -1102,7 +1349,7 @@ async function getConversations(cdp) {
                             
                             // Check for "Current"
                             if (text.includes('Current')) {
-                                currentSectionWorkspace = 'Current Workspace';
+                                currentSectionWorkspace = 'Current';
                                 return;
                             }
 
@@ -1442,6 +1689,13 @@ async function createServer() {
         res.json(result);
     });
 
+    // Create New Conversation
+    app.post('/new-conversation', async (req, res) => {
+        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
+        const result = await createNewConversation(cdpConnection);
+        res.json(result);
+    });
+
     // Get artifact content
     app.post('/get-artifact', async (req, res) => {
         const { buttonText = 'Open', artifactTitle, isFile } = req.body;
@@ -1458,6 +1712,10 @@ async function createServer() {
 
         // Decode the URL before passing to CDP
         const targetUrl = decodeURIComponent(url);
+
+        // Log the request to help debug
+        console.log(`🖼️ Proxying asset: ${targetUrl.split('/').pop()}`);
+
         // Basic security check: ensure it's a vscode-file or file scheme (or whatever internal scheme used)
         if (!targetUrl.startsWith('vscode-file://')) {
             // Optional: Allow other schemes if needed, but start restrictive
@@ -1467,6 +1725,7 @@ async function createServer() {
         const result = await fetchAssetViaCDP(cdpConnection, targetUrl);
 
         if (result.error || !result.success) {
+            console.error(`❌ Asset fetch failed: ${targetUrl.split('/').pop()} - ${result.error}`);
             return res.status(404).send(result.error || 'Asset not found');
         }
 
@@ -1555,6 +1814,23 @@ async function main() {
             if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
             const result = await ensureAgentPanelVisible(cdpConnection);
             res.json(result);
+        });
+
+        // Trigger generic action
+        app.post('/trigger-action', async (req, res) => {
+            if (!cdpConnection) return res.status(503).json({ error: 'No CDP connection' });
+            const { action, index } = req.body;
+
+            try {
+                const result = await triggerIdeAction(cdpConnection, action, index);
+                if (result && result.success) {
+                    res.json({ success: true });
+                } else {
+                    res.status(500).json({ error: result?.error || 'Action failed' });
+                }
+            } catch (e) {
+                res.status(500).json({ error: e.toString() });
+            }
         });
 
         // Start server
