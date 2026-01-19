@@ -27,7 +27,9 @@ const UI = {
     modalTitle: document.getElementById('modalTitle'),
     modeText: document.getElementById('modeText'),
     modelText: document.getElementById('modelText'),
-    agqBtn: document.getElementById('agqBtn')
+    agqBtn: document.getElementById('agqBtn'),
+    workspaceBtn: document.getElementById('workspaceBtn'),
+    workspaceIndicator: document.getElementById('workspaceIndicator')
 };
 
 // --- State ---
@@ -111,6 +113,8 @@ function dismissSslBanner() {
 
 // Check SSL on load
 checkSslStatus();
+// Initialize Workspaces
+loadWorkspaces();
 
 // --- Models ---
 const MODELS = [
@@ -560,6 +564,10 @@ UI.chatContainer.addEventListener('click', async (e) => {
     }
 });
 
+if (UI.workspaceBtn) {
+    UI.workspaceBtn.addEventListener('click', showWorkspaceSelector);
+}
+
 
 // --- Inputs ---
 async function sendMessage() {
@@ -624,6 +632,81 @@ async function syncScrollToDesktop() {
         }
     } catch (e) {
         console.log('Scroll sync failed:', e.message);
+    }
+}
+
+// --- Workspace Selector ---
+async function loadWorkspaces() {
+    try {
+        const res = await fetch('/api/workspaces');
+        const data = await res.json();
+
+        if (data.success) {
+            // Update Indicator
+            const current = data.workspaces.find(w => w.id === data.currentWorkspaceId);
+            if (current && UI.workspaceIndicator) {
+                UI.workspaceIndicator.textContent = `• ${current.title}`;
+                UI.workspaceIndicator.style.display = 'inline';
+            }
+            return data;
+        }
+    } catch (e) { console.error('Failed to load workspaces', e); }
+    return null;
+}
+
+async function showWorkspaceSelector() {
+    const data = await loadWorkspaces();
+    if (!data || !data.workspaces) return;
+
+    const options = data.workspaces.map(w => {
+        const isCurrent = w.id === data.currentWorkspaceId;
+        const checkMark = isCurrent ? '<svg viewBox="0 0 24 24" style="width:16px;height:16px;margin-left:auto;color:var(--success)"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>' : '';
+
+        return {
+            value: w.id,
+            html: `<div style="display:flex; align-items:center; width:100%">
+                    <div style="display:flex; flex-direction:column; gap:2px;">
+                        <span style="font-weight:500">${escapeHtml(w.title)}</span>
+                        <span style="font-size:11px; color:var(--text-muted)">Port: ${w.port}</span>
+                    </div>
+                    ${checkMark}
+                   </div>`
+        };
+    });
+
+    openModal('Select Workspace', options, (id) => {
+        if (id !== data.currentWorkspaceId) {
+            switchWorkspace(id);
+        }
+    });
+}
+
+async function switchWorkspace(id) {
+    try {
+        // Show loading state
+        if (UI.chatContent) {
+            UI.chatContent.innerHTML = `
+                <div class="loading-state">
+                    <div class="loading-spinner"></div>
+                    <p>Switching workspace...</p>
+                </div>
+            `;
+        }
+
+        await fetch('/api/workspace/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+
+        // Wait a bit for connection to stabilize then reload
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+
+    } catch (e) {
+        alert('Failed to switch workspace');
+        window.location.reload();
     }
 }
 

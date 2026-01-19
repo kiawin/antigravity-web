@@ -16,13 +16,13 @@ Connect to your Antigravity IDE from your browser via Chrome DevTools Protocol (
 - **View artifacts** — Open implementation plans, walkthroughs, and other artifacts
 - **Model & mode switching** — Change between Gemini/Claude/GPT and Fast/Planning modes
 - **Quota display** — View usage limits via [ag-quota](https://open-vsx.org/extension/henrikdev/ag-quota) extension
+- **Workspace switching** — Switch between workspaces
 
 ## Not Supported ❌
 
 - **Code files** — Cannot view or edit code files
 - **Terminal access** — No terminal control
 - **Voice input** — No speech-to-text support
-- **Multi-session** — One IDE connection at a time
 
 ## Quick Start
 

@@ -20,6 +20,7 @@ const POLL_INTERVAL = 1000; // 1 second
 let cdpConnection = null;
 let lastSnapshot = null;
 let lastSnapshotHash = null;
+let currentWorkspaceId = null;
 
 // Get local IP address for mobile access
 // Prefers real network IPs (192.168.x.x, 10.x.x.x) over virtual adapters (172.x.x.x from WSL/Docker)
@@ -61,19 +62,69 @@ function getJson(url) {
     });
 }
 
-// Find Antigravity CDP endpoint
-async function discoverCDP() {
+// Get all available workspaces across ports
+async function getAllWorkspaces() {
+    const workspaces = [];
     for (const port of PORTS) {
         try {
             const list = await getJson(`http://127.0.0.1:${port}/json/list`);
-            // Look for workbench specifically (where #cascade exists, which has the chat) 
-            const found = list.find(t => t.url?.includes('workbench.html') || (t.title && t.title.includes('workbench')));
-            if (found && found.webSocketDebuggerUrl) {
-                return { port, url: found.webSocketDebuggerUrl };
-            }
+            // Filter for valid workbench targets (exclude Launchpad/jetski-agent)
+            const targets = list.filter(t =>
+                (t.url?.includes('workbench.html') || (t.title && t.title.includes('workbench'))) &&
+                !t.url?.includes('workbench-jetski-agent.html') &&
+                t.type === 'page'
+            );
+
+            targets.forEach(t => {
+                // Clean up title
+                let title = t.title || 'Untitled Workspace';
+                // Remove common suffixes to keep it clean
+                title = title.replace(' — Implementation Plan', '')
+                    .replace(' — Task', '')
+                    .replace(' — Walkthrough', '');
+
+                if (title === 'Antigravity' || title.includes('workbench')) {
+                    title = 'Main Window';
+                }
+                if (title === 'Agent') {
+                    title = 'New Conversation';
+                }
+
+                workspaces.push({
+                    id: t.id,
+                    title: title,
+                    originalTitle: t.title,
+                    wsUrl: t.webSocketDebuggerUrl,
+                    port: port
+                });
+            });
         } catch (e) { }
     }
-    throw new Error('CDP not found. Is Antigravity started with --remote-debugging-port=9000?');
+    return workspaces;
+}
+
+// Find Antigravity CDP endpoint (or specific target)
+async function discoverCDP(targetId = null) {
+    const workspaces = await getAllWorkspaces();
+
+    if (workspaces.length === 0) {
+        throw new Error('CDP not found. Is Antigravity started with --remote-debugging-port=9000?');
+    }
+
+    if (targetId) {
+        const target = workspaces.find(w => w.id === targetId);
+        if (target) {
+            currentWorkspaceId = target.id;
+            return { port: target.port, url: target.wsUrl };
+        }
+        // If target not found, fall back to first one or error? 
+        // Let's fall back to first but log warning
+        console.warn(`Requested target ${targetId} not found, falling back to default.`);
+    }
+
+    // Default: Return first one
+    currentWorkspaceId = workspaces[0].id;
+    return { port: workspaces[0].port, url: workspaces[0].wsUrl };
 }
 
 // Connect to CDP
@@ -224,7 +275,10 @@ async function captureSnapshot(cdp) {
             
             // Extract Conversation Title
             const titleEl = document.querySelector('p.text-ide-sidebar-title-color');
-            const conversationTitle = titleEl ? titleEl.textContent.trim() : null;
+            let conversationTitle = titleEl ? titleEl.textContent.trim() : null;
+            if (conversationTitle === 'Agent') {
+                conversationTitle = 'New Conversation';
+            }
 
             // Capture Button States
             const buttonStates = {
@@ -1850,6 +1904,49 @@ async function createServer() {
         if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
         const result = await setModel(cdpConnection, model);
         res.json(result);
+    });
+
+    // List Workspaces
+    app.get('/api/workspaces', async (req, res) => {
+        try {
+            const workspaces = await getAllWorkspaces();
+            res.json({
+                success: true,
+                workspaces,
+                currentWorkspaceId: currentWorkspaceId
+            });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+
+    // Switch Workspace
+    app.post('/api/workspace/switch', async (req, res) => {
+        try {
+            const { id } = req.body;
+            if (!id) return res.status(400).json({ error: 'Missing workspace ID' });
+
+            console.log(`Switching to workspace ${id}...`);
+
+            // Discover with specific ID will return the correct URL
+            const cdpInfo = await discoverCDP(id);
+
+            // Close existing connection
+            if (cdpConnection && cdpConnection.ws) {
+                try { cdpConnection.ws.close(); } catch (e) { }
+                cdpConnection = null;
+            }
+
+            // Connect to new workspace
+            cdpConnection = await connectCDP(cdpInfo.url);
+
+            console.log(`Switched workspace to ${id}`);
+            res.json({ success: true });
+
+        } catch (error) {
+            console.error('Switch failed:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
     });
 
     // Stop Generation
