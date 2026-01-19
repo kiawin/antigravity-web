@@ -516,8 +516,8 @@ function scrollToBottom() {
 
 // --- Click Handlers (Delegated) ---
 UI.chatContainer.addEventListener('click', async (e) => {
-    // Check for "Expand all" or "Collapse all" buttons
-    const target = e.target.closest('[role="button"]');
+    // Check for "Expand all", "Collapse all", "Accept", or "Reject" buttons
+    const target = e.target.closest('button, [role="button"]');
     if (target) {
         const text = target.textContent.trim();
         let action = null;
@@ -526,6 +526,10 @@ UI.chatContainer.addEventListener('click', async (e) => {
             action = 'expand-all';
         } else if (text.includes('Collapse all')) {
             action = 'collapse-all';
+        } else if (text.startsWith('Accept')) {
+            action = 'accept';
+        } else if (text.startsWith('Reject')) {
+            action = 'reject';
         }
 
         if (action) {
@@ -537,8 +541,14 @@ UI.chatContainer.addEventListener('click', async (e) => {
 
             // Calculate index among all similar buttons to target the correct one
             // We need to find all buttons with the exact same text to determine our index
-            const allButtons = Array.from(UI.chatContainer.querySelectorAll('[role="button"]'))
-                .filter(el => el.textContent.trim().includes(text)); // loose match to handle icon text issues if any
+            const selector = 'button, [role="button"]';
+            const allButtons = Array.from(UI.chatContainer.querySelectorAll(selector))
+                .filter(el => {
+                    const elText = el.textContent.trim();
+                    if (action === 'accept') return elText.startsWith('Accept');
+                    if (action === 'reject') return elText.startsWith('Reject');
+                    return elText.includes(text);
+                });
 
             const index = allButtons.indexOf(target);
 

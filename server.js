@@ -204,6 +204,79 @@ async function captureSnapshot(cdp) {
             // Clone cascade to modify it without affecting the original
             const clone = cascade.cloneNode(true);
             
+            // Snapshot Canvases (Fix for Terminal/xterm.js visibility)
+            // We must do this immediately after cloning while we can still reference the original canvases
+            try {
+                const originalCanvases = Array.from(cascade.querySelectorAll('canvas'));
+                const clonedCanvases = Array.from(clone.querySelectorAll('canvas'));
+
+                if (originalCanvases.length === clonedCanvases.length) {
+                    for (let i = 0; i < originalCanvases.length; i++) {
+                        const original = originalCanvases[i];
+                        const cloned = clonedCanvases[i];
+                        
+                        // Skip if hidden or 0 size
+                        if (original.width === 0 || original.height === 0) continue;
+
+                        try {
+                            let dataUrl;
+                            
+                            // Check if this is an xterm text layer (no class or specific class, and inside xterm)
+                            const isXterm = original.closest('.xterm');
+                            const isLinkLayer = original.classList.contains('xterm-link-layer') || original.classList.contains('xterm-cursor-layer');
+                            
+                            if (isXterm && !isLinkLayer) {
+                                // Try to composite background
+                                const tempCanvas = document.createElement('canvas');
+                                tempCanvas.width = original.width;
+                                tempCanvas.height = original.height;
+                                const ctx = tempCanvas.getContext('2d');
+                                
+                                // Find background color
+                                let bg = 'transparent';
+                                let cur = original.parentElement;
+                                while (cur && cur.id !== 'cascade') {
+                                    const style = window.getComputedStyle(cur);
+                                    if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent') {
+                                        bg = style.backgroundColor;
+                                        break;
+                                    }
+                                    cur = cur.parentElement;
+                                    if (!cur) break;
+                                }
+                                
+                                // Fill background
+                                ctx.fillStyle = bg;
+                                ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                                // Draw original
+                                ctx.drawImage(original, 0, 0);
+                                dataUrl = tempCanvas.toDataURL();
+                            } else {
+                                dataUrl = original.toDataURL();
+                            }
+
+                            const img = document.createElement('img');
+                            img.src = dataUrl;
+                            
+                            // Copy essential attributes and styles
+                            img.className = cloned.className;
+                            img.setAttribute('style', cloned.getAttribute('style'));
+                            
+                            // Ensure dimensions match the visual display
+                            const computed = window.getComputedStyle(original);
+                            img.style.width = computed.width;
+                            img.style.height = computed.height;
+                            
+                            cloned.parentNode.replaceChild(img, cloned);
+                        } catch (e) {
+                            // Ignore tainted canvases or errors
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Canvas snapshot error:', e);
+            }
+            
             // Remove the input box / chat window (last direct child div containing contenteditable)
             const inputContainer = clone.querySelector('[contenteditable="true"]')?.closest('div[id^="cascade"] > div');
             if (inputContainer) {
@@ -1417,6 +1490,8 @@ async function triggerIdeAction(cdp, action, index = 0) {
             let targetText = '';
             if ('${action}' === 'expand-all') targetText = 'Expand all';
             else if ('${action}' === 'collapse-all') targetText = 'Collapse all';
+            else if ('${action}' === 'accept') targetText = 'Accept';
+            else if ('${action}' === 'reject') targetText = 'Reject';
             else return { error: 'Unknown action' };
             
             const targetIndex = ${index};
@@ -1432,18 +1507,17 @@ async function triggerIdeAction(cdp, action, index = 0) {
             // or elements that contain the text and look like the target structure
             // We want to find ALL valid targets first, then pick the one at targetIndex
             const validTargets = candidates.filter(el => {
-                // Check exact text match on the label part if possible, 
-                // or check if it's the specific container span from the user example
-                
-                // User example: <span ... role="button">Expand all...</span>
-                if (el.getAttribute('role') === 'button' && el.textContent.trim().startsWith(targetText)) {
+                const isButton = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button';
+                const text = el.textContent.trim();
+
+                if (isButton && text.startsWith(targetText)) {
                     return true;
                 }
                 
                 // Also check close parents of the text node if exact element not hit
-                if (el.textContent.trim() === targetText && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+                if (text.startsWith(targetText) && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
                     // It's the text node wrapper, look up for button role
-                    if (el.closest('[role="button"]')) return true;
+                    if (el.closest('button, [role="button"]')) return true;
                 }
                 return false;
             });
@@ -1454,7 +1528,7 @@ async function triggerIdeAction(cdp, action, index = 0) {
             // Let's refine: map to the closest button
             const uniqueButtons = [];
             validTargets.forEach(el => {
-                const btn = el.getAttribute('role') === 'button' ? el : el.closest('[role="button"]');
+                const btn = (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') ? el : el.closest('button, [role="button"]');
                 if (btn && !uniqueButtons.includes(btn)) {
                     uniqueButtons.push(btn);
                 }
@@ -1462,14 +1536,7 @@ async function triggerIdeAction(cdp, action, index = 0) {
 
             const target = uniqueButtons[targetIndex];
             
-            // Refined search: Look specifically for the interactive element
-            let clickable = target;
-            // The uniqueButtons logic already ensures it's a button or closest button, but safety check:
-            if (target && target.getAttribute('role') !== 'button') {
-                clickable = target.closest('[role="button"]');
-            }
-
-            if (clickable) {
+            if (target) {
                 // Simulate full click sequence for better compatibility
                 const events = ['mousedown', 'mouseup', 'click'];
                 events.forEach(eventType => {
@@ -1479,7 +1546,7 @@ async function triggerIdeAction(cdp, action, index = 0) {
                         cancelable: true,
                         buttons: 1
                     });
-                    clickable.dispatchEvent(event);
+                    target.dispatchEvent(event);
                 });
                 return { success: true };
             }
