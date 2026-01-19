@@ -1842,6 +1842,11 @@ async function startPolling(wss) {
 
         try {
             const snapshot = await captureSnapshot(cdpConnection);
+            if (snapshot?.error) {
+                console.log('⚠️ Snapshot error:', snapshot.error);
+            } else if (!snapshot) {
+                console.log('⚠️ Snapshot returned null (cascade not found in any context)');
+            }
             if (snapshot && !snapshot.error) {
                 const hash = hashString(snapshot.html);
 
