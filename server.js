@@ -22,6 +22,20 @@ let lastSnapshot = null;
 let lastSnapshotHash = null;
 let currentWorkspaceId = null;
 
+// Reconnection backoff configuration
+const RECONNECT_CONFIG = {
+    initialDelayMs: 1000,   // Start with 1 second
+    maxDelayMs: 30000,      // Cap at 30 seconds
+    multiplier: 1.5,        // Exponential backoff multiplier
+};
+
+// Reconnection state
+let reconnectState = {
+    isReconnecting: false,
+    currentDelayMs: RECONNECT_CONFIG.initialDelayMs,
+    wss: null,  // WebSocket server reference for broadcasting
+};
+
 // Get local IP address for mobile access
 // Prefers real network IPs (192.168.x.x, 10.x.x.x) over virtual adapters (172.x.x.x from WSL/Docker)
 function getLocalIP() {
@@ -140,6 +154,28 @@ async function connectCDP(url) {
     const contexts = [];
     const CDP_CALL_TIMEOUT = 30000; // 30 seconds timeout
 
+    // Handle WebSocket close - trigger reconnection
+    ws.on('close', (code, reason) => {
+        console.log(`⚠️ CDP connection closed (code: ${code}, reason: ${reason || 'unknown'})`);
+        cdpConnection = null;
+
+        // Clear any pending calls
+        for (const [id, { reject, timeoutId }] of pendingCalls) {
+            clearTimeout(timeoutId);
+            reject(new Error('WebSocket closed'));
+        }
+        pendingCalls.clear();
+
+        // Trigger reconnection with backoff
+        scheduleReconnect();
+    });
+
+    // Handle errors after connection is established
+    ws.on('error', (err) => {
+        console.error('⚠️ CDP WebSocket error:', err.message);
+        // Close handler will trigger reconnection
+    });
+
     // Single centralized message handler (fixes MaxListenersExceeded warning)
     ws.on('message', (msg) => {
         try {
@@ -181,6 +217,83 @@ async function connectCDP(url) {
     await new Promise(r => setTimeout(r, 1000));
 
     return { ws, call, contexts };
+}
+
+// Schedule reconnection with exponential backoff
+function scheduleReconnect() {
+    if (reconnectState.isReconnecting) {
+        return; // Already reconnecting
+    }
+
+    reconnectState.isReconnecting = true;
+    const delay = reconnectState.currentDelayMs;
+
+    console.log(`🔄 Scheduling reconnection in ${delay}ms...`);
+
+    // Broadcast disconnection to clients
+    if (reconnectState.wss) {
+        reconnectState.wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                    type: 'cdp_disconnected',
+                    reconnectingIn: delay,
+                    timestamp: new Date().toISOString()
+                }));
+            }
+        });
+    }
+
+    setTimeout(async () => {
+        await attemptReconnect();
+    }, delay);
+}
+
+// Attempt to reconnect to the IDE
+async function attemptReconnect() {
+    try {
+        console.log('🔌 Attempting to reconnect to IDE...');
+
+        const cdpInfo = await discoverCDP(currentWorkspaceId);
+        cdpConnection = await connectCDP(cdpInfo.url);
+
+        // Success! Reset backoff state
+        reconnectState.isReconnecting = false;
+        reconnectState.currentDelayMs = RECONNECT_CONFIG.initialDelayMs;
+
+        console.log(`✅ Reconnected to IDE! Found ${cdpConnection.contexts.length} execution contexts`);
+
+        // Broadcast reconnection to clients
+        if (reconnectState.wss) {
+            reconnectState.wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify({
+                        type: 'cdp_reconnected',
+                        timestamp: new Date().toISOString()
+                    }));
+                }
+            });
+        }
+
+        // Refresh panel visibility
+        const panelStatus = await checkAgentPanelVisibility(cdpConnection);
+        if (panelStatus.found && !panelStatus.visible) {
+            console.log('⚠️ Agent panel hidden, making visible...');
+            await ensureAgentPanelVisible(cdpConnection);
+        }
+
+    } catch (err) {
+        console.log(`❌ Reconnection failed: ${err.message}`);
+
+        // Increase backoff delay for next attempt
+        reconnectState.currentDelayMs = Math.min(
+            reconnectState.currentDelayMs * RECONNECT_CONFIG.multiplier,
+            RECONNECT_CONFIG.maxDelayMs
+        );
+        reconnectState.isReconnecting = false;
+
+        // Schedule next attempt
+        scheduleReconnect();
+    }
 }
 
 // Capture chat snapshot
@@ -1898,6 +2011,9 @@ async function createServer() {
     }
 
     const wss = new WebSocketServer({ server });
+
+    // Store wss reference for reconnection broadcasts
+    reconnectState.wss = wss;
 
     app.use(express.json());
     app.use(express.static(join(__dirname, 'public')));
