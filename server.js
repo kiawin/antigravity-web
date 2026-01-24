@@ -408,12 +408,39 @@ async function captureSnapshot(cdp) {
                             img.style.width = computed.width;
                             img.style.height = computed.height;
                             
+                            // Fix z-index layering for xterm terminal
+                            // The main text layer should be above link/cursor layers
+                            // IMPORTANT: Use setProperty with 'important' to override any CSS
+                            if (isXterm) {
+                                // Ensure parent .xterm-screen has position:relative for absolute children
+                                const xtermScreen = cloned.closest('.xterm-screen');
+                                if (xtermScreen) {
+                                    xtermScreen.style.setProperty('position', 'relative', 'important');
+                                }
+                                
+                                img.style.setProperty('position', 'absolute', 'important');
+                                img.style.setProperty('top', '0', 'important');
+                                img.style.setProperty('left', '0', 'important');
+                                if (isLinkLayer) {
+                                    // Link/cursor layers should be behind or at same level
+                                    img.style.setProperty('z-index', '2', 'important');
+                                } else {
+                                    // Main text layer should be on top
+                                    img.style.setProperty('z-index', '3', 'important');
+                                }
+                            }
+                            
                             cloned.parentNode.replaceChild(img, cloned);
                         } catch (e) {
                             // Ignore tainted canvases or errors
                         }
                     }
                 }
+                
+                // Clean up xterm helper elements that are not needed in the snapshot
+                // These cause misalignment and visual noise
+                clone.querySelectorAll('.xterm-helpers, .xterm-decoration-container').forEach(el => el.remove());
+                
             } catch (e) {
                 console.error('Canvas snapshot error:', e);
             }
