@@ -65,4 +65,4 @@ This repository is opinionated and may not be suitable for everyone. It is recom
 
 ## License
 
-[GNU GPL v3](LICENSE)
+GNU GPL v3

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Antigravity Phone Connect - Mac/Linux Launcher
+# Antigravity Web - Mac/Linux Launcher
 echo "==================================================="
-echo "  Antigravity Phone Connect Launcher"
+echo "  Antigravity Web Launcher"
 echo "==================================================="
 
 # 1. Check for Node.js
@@ -86,7 +86,7 @@ echo ""
 
 echo "[STARTING] Launching monitor server..."
 echo ""
-node --watch server.js
+node server.js
 
 # Keep terminal open if server crashes
 echo ""

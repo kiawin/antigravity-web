@@ -1,12 +1,12 @@
 @echo off
 setlocal enabledelayedexpansion
-title Antigravity Phone Connect
+title Antigravity Web
 
 :: Navigate to the script's directory
 cd /d "%~dp0"
 
 echo ===================================================
-echo   Antigravity Phone Connect Launcher
+echo   Antigravity Web Launcher
 echo ===================================================
 echo.
 
