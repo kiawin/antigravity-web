@@ -214,6 +214,11 @@ export function renderSnapshot(data) {
             #chatContent pre, #chatContent code { max-width: 100% !important; overflow-x: auto !important; white-space: pre-wrap !important; word-break: break-word !important; }
             #chatContent img { max-width: 100% !important; height: auto !important; }
             ::-webkit-scrollbar { width: 0 !important; }
+            /* Terminal overflow fix - contain xterm inside its parent containers */
+            #chatContent .component-shared-terminal { overflow: hidden !important; }
+            #chatContent .terminal-wrapper { overflow: hidden !important; }
+            #chatContent .xterm { overflow: hidden !important; }
+            #chatContent .xterm-screen { position: relative !important; overflow: hidden !important; }
         </style>
     `;
 

@@ -96,6 +96,27 @@ export const captureSnapshotScript = async function () {
                   "relative",
                   "important",
                 );
+                xtermScreen.style.setProperty(
+                  "overflow",
+                  "hidden",
+                  "important",
+                );
+                // Set explicit height based on the canvas height to prevent overflow
+                xtermScreen.style.setProperty(
+                  "height",
+                  computed.height,
+                  "important",
+                );
+              }
+
+              // Also ensure the parent .xterm container has overflow control
+              const xtermContainer = cloned.closest(".xterm");
+              if (xtermContainer) {
+                xtermContainer.style.setProperty(
+                  "overflow",
+                  "hidden",
+                  "important",
+                );
               }
 
               img.style.setProperty("position", "absolute", "important");
