@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-import express from 'express';
-import { WebSocketServer } from 'ws';
-import http from 'http';
-import https from 'https';
-import fs from 'fs';
-import os from 'os';
-import WebSocket from 'ws';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { inspectUI } from './ui_inspector.js';
+import express from "express";
+import WebSocket, { WebSocketServer } from "ws";
+import http from "http";
+import https from "https";
+import fs from "fs";
+import os from "os";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import { inspectUI } from "./ui_inspector.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,281 +23,310 @@ let currentWorkspaceId = null;
 
 // Reconnection backoff configuration
 const RECONNECT_CONFIG = {
-    initialDelayMs: 1000,   // Start with 1 second
-    maxDelayMs: 30000,      // Cap at 30 seconds
-    multiplier: 1.5,        // Exponential backoff multiplier
+  initialDelayMs: 1000, // Start with 1 second
+  maxDelayMs: 30000, // Cap at 30 seconds
+  multiplier: 1.5, // Exponential backoff multiplier
 };
 
 // Reconnection state
-let reconnectState = {
-    isReconnecting: false,
-    currentDelayMs: RECONNECT_CONFIG.initialDelayMs,
-    wss: null,  // WebSocket server reference for broadcasting
+const reconnectState = {
+  isReconnecting: false,
+  currentDelayMs: RECONNECT_CONFIG.initialDelayMs,
+  wss: null, // WebSocket server reference for broadcasting
 };
 
 // Get local IP address for mobile access
 // Prefers real network IPs (192.168.x.x, 10.x.x.x) over virtual adapters (172.x.x.x from WSL/Docker)
 function getLocalIP() {
-    const interfaces = os.networkInterfaces();
-    const candidates = [];
+  const interfaces = os.networkInterfaces();
+  const candidates = [];
 
-    for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name]) {
-            // Skip internal and non-IPv4 addresses
-            if (iface.family === 'IPv4' && !iface.internal) {
-                candidates.push({
-                    address: iface.address,
-                    name: name,
-                    // Prioritize common home/office network ranges
-                    priority: iface.address.startsWith('192.168.') ? 1 :
-                        iface.address.startsWith('10.') ? 2 :
-                            iface.address.startsWith('172.') ? 3 : 4
-                });
-            }
-        }
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      // Skip internal and non-IPv4 addresses
+      if (iface.family === "IPv4" && !iface.internal) {
+        candidates.push({
+          address: iface.address,
+          name,
+          // Prioritize common home/office network ranges
+          priority: iface.address.startsWith("192.168.")
+            ? 1
+            : iface.address.startsWith("10.")
+              ? 2
+              : iface.address.startsWith("172.")
+                ? 3
+                : 4,
+        });
+      }
     }
+  }
 
-    // Sort by priority and return the best one
-    candidates.sort((a, b) => a.priority - b.priority);
-    return candidates.length > 0 ? candidates[0].address : 'localhost';
+  // Sort by priority and return the best one
+  candidates.sort((a, b) => a.priority - b.priority);
+  return candidates.length > 0 ? candidates[0].address : "localhost";
 }
 
 // Helper: HTTP GET JSON
 function getJson(url) {
-    return new Promise((resolve, reject) => {
-        http.get(url, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-            });
-        }).on('error', reject);
-    });
+  return new Promise((resolve, reject) => {
+    http
+      .get(url, (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+      .on("error", reject);
+  });
 }
 
 // Get all available workspaces across ports
 async function getAllWorkspaces() {
-    const workspaces = [];
-    for (const port of PORTS) {
-        try {
-            const list = await getJson(`http://127.0.0.1:${port}/json/list`);
-            // Filter for valid workbench targets (exclude Launchpad/jetski-agent)
-            const targets = list.filter(t =>
-                (t.url?.includes('workbench.html') || (t.title && t.title.includes('workbench'))) &&
-                !t.url?.includes('workbench-jetski-agent.html') &&
-                t.type === 'page'
-            );
+  const workspaces = [];
+  for (const port of PORTS) {
+    try {
+      const list = await getJson(`http://127.0.0.1:${port}/json/list`);
+      // Filter for valid workbench targets (exclude Launchpad/jetski-agent)
+      const targets = list.filter(
+        (t) =>
+          (t.url?.includes("workbench.html") ||
+            (t.title && t.title.includes("workbench"))) &&
+          !t.url?.includes("workbench-jetski-agent.html") &&
+          t.type === "page",
+      );
 
-            targets.forEach(t => {
-                // Clean up title
-                let title = t.title || 'Untitled Workspace';
-                // Remove common suffixes to keep it clean
-                title = title.replace(' — Implementation Plan', '')
-                    .replace(' — Task', '')
-                    .replace(' — Walkthrough', '');
+      targets.forEach((t) => {
+        // Clean up title
+        let title = t.title || "Untitled Workspace";
+        // Remove common suffixes to keep it clean
+        title = title
+          .replace(" — Implementation Plan", "")
+          .replace(" — Task", "")
+          .replace(" — Walkthrough", "");
 
-                if (title === 'Antigravity' || title.includes('workbench')) {
-                    title = 'Main Window';
-                }
-                if (title === 'Agent') {
-                    title = 'New Conversation';
-                }
+        if (title === "Antigravity" || title.includes("workbench")) {
+          title = "Main Window";
+        }
+        if (title === "Agent") {
+          title = "New Conversation";
+        }
 
-                workspaces.push({
-                    id: t.id,
-                    title: title,
-                    originalTitle: t.title,
-                    wsUrl: t.webSocketDebuggerUrl,
-                    port: port
-                });
-            });
-        } catch (e) { }
-    }
-    return workspaces;
+        workspaces.push({
+          id: t.id,
+          title,
+          originalTitle: t.title,
+          wsUrl: t.webSocketDebuggerUrl,
+          port,
+        });
+      });
+    } catch (e) {}
+  }
+  return workspaces;
 }
 
 // Find Antigravity CDP endpoint (or specific target)
 async function discoverCDP(targetId = null) {
-    const workspaces = await getAllWorkspaces();
+  const workspaces = await getAllWorkspaces();
 
-    if (workspaces.length === 0) {
-        throw new Error('CDP not found. Is Antigravity started with --remote-debugging-port=9000?');
+  if (workspaces.length === 0) {
+    throw new Error(
+      "CDP not found. Is Antigravity started with --remote-debugging-port=9000?",
+    );
+  }
+
+  if (targetId) {
+    const target = workspaces.find((w) => w.id === targetId);
+    if (target) {
+      currentWorkspaceId = target.id;
+      return { port: target.port, url: target.wsUrl };
     }
+    // If target not found, fall back to first one or error?
+    // Let's fall back to first but log warning
+    console.warn(
+      `Requested target ${targetId} not found, falling back to default.`,
+    );
+  }
 
-    if (targetId) {
-        const target = workspaces.find(w => w.id === targetId);
-        if (target) {
-            currentWorkspaceId = target.id;
-            return { port: target.port, url: target.wsUrl };
-        }
-        // If target not found, fall back to first one or error? 
-        // Let's fall back to first but log warning
-        console.warn(`Requested target ${targetId} not found, falling back to default.`);
-    }
-
-    // Default: Return first one
-    currentWorkspaceId = workspaces[0].id;
-    return { port: workspaces[0].port, url: workspaces[0].wsUrl };
+  // Default: Return first one
+  currentWorkspaceId = workspaces[0].id;
+  return { port: workspaces[0].port, url: workspaces[0].wsUrl };
 }
 
 // Connect to CDP
 async function connectCDP(url) {
-    const ws = new WebSocket(url);
-    await new Promise((resolve, reject) => {
-        ws.on('open', resolve);
-        ws.on('error', reject);
-    });
+  const ws = new WebSocket(url);
+  await new Promise((resolve, reject) => {
+    ws.on("open", resolve);
+    ws.on("error", reject);
+  });
 
-    let idCounter = 1;
-    const pendingCalls = new Map(); // Track pending calls by ID
-    const contexts = [];
-    const CDP_CALL_TIMEOUT = 30000; // 30 seconds timeout
+  let idCounter = 1;
+  const pendingCalls = new Map(); // Track pending calls by ID
+  const contexts = [];
+  const CDP_CALL_TIMEOUT = 30000; // 30 seconds timeout
 
-    // Handle WebSocket close - trigger reconnection
-    ws.on('close', (code, reason) => {
-        console.log(`⚠️ CDP connection closed (code: ${code}, reason: ${reason || 'unknown'})`);
-        cdpConnection = null;
+  // Handle WebSocket close - trigger reconnection
+  ws.on("close", (code, reason) => {
+    console.log(
+      `⚠️ CDP connection closed (code: ${code}, reason: ${reason || "unknown"})`,
+    );
+    cdpConnection = null;
 
-        // Clear any pending calls
-        for (const [id, { reject, timeoutId }] of pendingCalls) {
-            clearTimeout(timeoutId);
-            reject(new Error('WebSocket closed'));
+    // Clear any pending calls
+    for (const [_id, { reject, timeoutId }] of pendingCalls) {
+      clearTimeout(timeoutId);
+      reject(new Error("WebSocket closed"));
+    }
+    pendingCalls.clear();
+
+    // Trigger reconnection with backoff
+    scheduleReconnect();
+  });
+
+  // Handle errors after connection is established
+  ws.on("error", (err) => {
+    console.error("⚠️ CDP WebSocket error:", err.message);
+    // Close handler will trigger reconnection
+  });
+
+  // Single centralized message handler (fixes MaxListenersExceeded warning)
+  ws.on("message", (msg) => {
+    try {
+      const data = JSON.parse(msg);
+
+      // Handle CDP method responses
+      if (data.id !== undefined && pendingCalls.has(data.id)) {
+        const { resolve, reject, timeoutId } = pendingCalls.get(data.id);
+        clearTimeout(timeoutId);
+        pendingCalls.delete(data.id);
+
+        if (data.error) reject(data.error);
+        else resolve(data.result);
+      }
+
+      // Handle execution context events
+      if (data.method === "Runtime.executionContextCreated") {
+        contexts.push(data.params.context);
+      }
+    } catch (e) {}
+  });
+
+  const call = (method, params) =>
+    new Promise((resolve, reject) => {
+      const id = idCounter++;
+
+      // Setup timeout to prevent memory leaks from never-resolved calls
+      const timeoutId = setTimeout(() => {
+        if (pendingCalls.has(id)) {
+          pendingCalls.delete(id);
+          reject(
+            new Error(
+              `CDP call ${method} timed out after ${CDP_CALL_TIMEOUT}ms`,
+            ),
+          );
         }
-        pendingCalls.clear();
+      }, CDP_CALL_TIMEOUT);
 
-        // Trigger reconnection with backoff
-        scheduleReconnect();
+      pendingCalls.set(id, { resolve, reject, timeoutId });
+      ws.send(JSON.stringify({ id, method, params }));
     });
 
-    // Handle errors after connection is established
-    ws.on('error', (err) => {
-        console.error('⚠️ CDP WebSocket error:', err.message);
-        // Close handler will trigger reconnection
-    });
+  await call("Runtime.enable", {});
+  await new Promise((r) => setTimeout(r, 1000));
 
-    // Single centralized message handler (fixes MaxListenersExceeded warning)
-    ws.on('message', (msg) => {
-        try {
-            const data = JSON.parse(msg);
-
-            // Handle CDP method responses
-            if (data.id !== undefined && pendingCalls.has(data.id)) {
-                const { resolve, reject, timeoutId } = pendingCalls.get(data.id);
-                clearTimeout(timeoutId);
-                pendingCalls.delete(data.id);
-
-                if (data.error) reject(data.error);
-                else resolve(data.result);
-            }
-
-            // Handle execution context events
-            if (data.method === 'Runtime.executionContextCreated') {
-                contexts.push(data.params.context);
-            }
-        } catch (e) { }
-    });
-
-    const call = (method, params) => new Promise((resolve, reject) => {
-        const id = idCounter++;
-
-        // Setup timeout to prevent memory leaks from never-resolved calls
-        const timeoutId = setTimeout(() => {
-            if (pendingCalls.has(id)) {
-                pendingCalls.delete(id);
-                reject(new Error(`CDP call ${method} timed out after ${CDP_CALL_TIMEOUT}ms`));
-            }
-        }, CDP_CALL_TIMEOUT);
-
-        pendingCalls.set(id, { resolve, reject, timeoutId });
-        ws.send(JSON.stringify({ id, method, params }));
-    });
-
-    await call("Runtime.enable", {});
-    await new Promise(r => setTimeout(r, 1000));
-
-    return { ws, call, contexts };
+  return { ws, call, contexts };
 }
 
 // Schedule reconnection with exponential backoff
 function scheduleReconnect() {
-    if (reconnectState.isReconnecting) {
-        return; // Already reconnecting
-    }
+  if (reconnectState.isReconnecting) {
+    return; // Already reconnecting
+  }
 
-    reconnectState.isReconnecting = true;
-    const delay = reconnectState.currentDelayMs;
+  reconnectState.isReconnecting = true;
+  const delay = reconnectState.currentDelayMs;
 
-    console.log(`🔄 Scheduling reconnection in ${delay}ms...`);
+  console.log(`🔄 Scheduling reconnection in ${delay}ms...`);
 
-    // Broadcast disconnection to clients
-    if (reconnectState.wss) {
-        reconnectState.wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({
-                    type: 'cdp_disconnected',
-                    reconnectingIn: delay,
-                    timestamp: new Date().toISOString()
-                }));
-            }
-        });
-    }
+  // Broadcast disconnection to clients
+  if (reconnectState.wss) {
+    reconnectState.wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(
+          JSON.stringify({
+            type: "cdp_disconnected",
+            reconnectingIn: delay,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }
+    });
+  }
 
-    setTimeout(async () => {
-        await attemptReconnect();
-    }, delay);
+  setTimeout(async () => {
+    await attemptReconnect();
+  }, delay);
 }
 
 // Attempt to reconnect to the IDE
 async function attemptReconnect() {
-    try {
-        console.log('🔌 Attempting to reconnect to IDE...');
+  try {
+    console.log("🔌 Attempting to reconnect to IDE...");
 
-        const cdpInfo = await discoverCDP(currentWorkspaceId);
-        cdpConnection = await connectCDP(cdpInfo.url);
+    const cdpInfo = await discoverCDP(currentWorkspaceId);
+    cdpConnection = await connectCDP(cdpInfo.url);
 
-        // Success! Reset backoff state
-        reconnectState.isReconnecting = false;
-        reconnectState.currentDelayMs = RECONNECT_CONFIG.initialDelayMs;
+    // Success! Reset backoff state
+    reconnectState.isReconnecting = false;
+    reconnectState.currentDelayMs = RECONNECT_CONFIG.initialDelayMs;
 
-        console.log(`✅ Reconnected to IDE! Found ${cdpConnection.contexts.length} execution contexts`);
+    console.log(
+      `✅ Reconnected to IDE! Found ${cdpConnection.contexts.length} execution contexts`,
+    );
 
-        // Broadcast reconnection to clients
-        if (reconnectState.wss) {
-            reconnectState.wss.clients.forEach(client => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify({
-                        type: 'cdp_reconnected',
-                        timestamp: new Date().toISOString()
-                    }));
-                }
-            });
+    // Broadcast reconnection to clients
+    if (reconnectState.wss) {
+      reconnectState.wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(
+            JSON.stringify({
+              type: "cdp_reconnected",
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
-
-        // Refresh panel visibility
-        const panelStatus = await checkAgentPanelVisibility(cdpConnection);
-        if (panelStatus.found && !panelStatus.visible) {
-            console.log('⚠️ Agent panel hidden, making visible...');
-            await ensureAgentPanelVisible(cdpConnection);
-        }
-
-    } catch (err) {
-        console.log(`❌ Reconnection failed: ${err.message}`);
-
-        // Increase backoff delay for next attempt
-        reconnectState.currentDelayMs = Math.min(
-            reconnectState.currentDelayMs * RECONNECT_CONFIG.multiplier,
-            RECONNECT_CONFIG.maxDelayMs
-        );
-        reconnectState.isReconnecting = false;
-
-        // Schedule next attempt
-        scheduleReconnect();
+      });
     }
+
+    // Refresh panel visibility
+    const panelStatus = await checkAgentPanelVisibility(cdpConnection);
+    if (panelStatus.found && !panelStatus.visible) {
+      console.log("⚠️ Agent panel hidden, making visible...");
+      await ensureAgentPanelVisible(cdpConnection);
+    }
+  } catch (err) {
+    console.log(`❌ Reconnection failed: ${err.message}`);
+
+    // Increase backoff delay for next attempt
+    reconnectState.currentDelayMs = Math.min(
+      reconnectState.currentDelayMs * RECONNECT_CONFIG.multiplier,
+      RECONNECT_CONFIG.maxDelayMs,
+    );
+    reconnectState.isReconnecting = false;
+
+    // Schedule next attempt
+    scheduleReconnect();
+  }
 }
 
 // Capture chat snapshot
 async function captureSnapshot(cdp) {
-    const CAPTURE_SCRIPT = `(async () => {
+  const CAPTURE_SCRIPT = `(async () => {
         try {
             const cascade = document.getElementById('cascade');
             if (!cascade) return { error: 'cascade not found' };
@@ -515,31 +543,34 @@ async function captureSnapshot(cdp) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const result = await cdp.call("Runtime.evaluate", {
-                expression: CAPTURE_SCRIPT,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
+  for (const ctx of cdp.contexts) {
+    try {
+      const result = await cdp.call("Runtime.evaluate", {
+        expression: CAPTURE_SCRIPT,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
 
-            if (result.result && result.result.value) {
-                return result.result.value;
-            }
-        } catch (e) { }
-    }
+      if (result.result && result.result.value) {
+        return result.result.value;
+      }
+    } catch (e) {}
+  }
 
-    return null;
+  return null;
 }
 
 // Capture artifact content (e.g., implementation plan)
 // Strategy: Click the "Open" button in the IDE, wait for artifact to load, then capture
-async function captureArtifactContent(cdp, { buttonText, artifactTitle, isFile }) {
-    // Step 1: Click the "Open" button for the SPECIFIC artifact
-    const CLICK_SCRIPT = `(async () => {
+async function captureArtifactContent(
+  cdp,
+  { buttonText, artifactTitle, isFile },
+) {
+  // Step 1: Click the "Open" button for the SPECIFIC artifact
+  const CLICK_SCRIPT = `(async () => {
         try {
-            const targetTitle = '${artifactTitle || ''}';
+            const targetTitle = '${artifactTitle || ""}';
             
             // Find all artifact containers (rounded-md with Open buttons)
             const containers = Array.from(document.querySelectorAll('.rounded-md'));
@@ -569,13 +600,13 @@ async function captureArtifactContent(cdp, { buttonText, artifactTitle, isFile }
         }
     })()`;
 
-    // Step 2: Capture artifact content (after click)
-    // For files, we extract the URI to read from disk. For artifacts, we capture DOM.
-    const CAPTURE_SCRIPT = `(async () => {
+  // Step 2: Capture artifact content (after click)
+  // For files, we extract the URI to read from disk. For artifacts, we capture DOM.
+  const CAPTURE_SCRIPT = `(async () => {
         try {
             const debug = { strategy: '' };
             const isFile = ${!!isFile};
-            const targetTitle = "${artifactTitle || ''}";
+            const targetTitle = "${artifactTitle || ""}";
 
             if (isFile) {
                 const editors = Array.from(document.querySelectorAll('.editor-instance'));
@@ -631,97 +662,99 @@ async function captureArtifactContent(cdp, { buttonText, artifactTitle, isFile }
         }
     })()`;
 
-    // Execute click in each context until one succeeds
-    let clickResult = null;
+  // Execute click in each context until one succeeds
+  let clickResult = null;
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: CLICK_SCRIPT,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value?.clicked) {
+        clickResult = res.result.value;
+        break;
+      }
+    } catch (e) {}
+  }
+
+  if (!clickResult) {
+    return { error: "Could not click Open button in any context" };
+  }
+
+  // Wait for artifact/file to render
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  // Execute capture
+  let captureResult = null;
+  const captureErrors = [];
+
+  // Retry logic for capture (wait for render)
+  for (let attempt = 0; attempt < 3; attempt++) {
     for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: CLICK_SCRIPT,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value?.clicked) {
-                clickResult = res.result.value;
-                break;
-            }
-        } catch (e) { }
-    }
-
-    if (!clickResult) {
-        return { error: 'Could not click Open button in any context' };
-    }
-
-    // Wait for artifact/file to render
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Execute capture
-    let captureResult = null;
-    let captureErrors = [];
-
-    // Retry logic for capture (wait for render)
-    for (let attempt = 0; attempt < 3; attempt++) {
-        for (const ctx of cdp.contexts) {
-            try {
-                const res = await cdp.call("Runtime.evaluate", {
-                    expression: CAPTURE_SCRIPT,
-                    returnByValue: true,
-                    awaitPromise: true,
-                    contextId: ctx.id
-                });
-                if (res.result?.value?.success) {
-                    captureResult = res.result.value;
-                    break;
-                }
-                if (res.result?.value?.error) {
-                    captureErrors.push(res.result.value.error);
-                }
-            } catch (e) {
-                captureErrors.push(e.message);
-            }
+      try {
+        const res = await cdp.call("Runtime.evaluate", {
+          expression: CAPTURE_SCRIPT,
+          returnByValue: true,
+          awaitPromise: true,
+          contextId: ctx.id,
+        });
+        if (res.result?.value?.success) {
+          captureResult = res.result.value;
+          break;
         }
-        if (captureResult) break;
-        await new Promise(r => setTimeout(r, 500));
+        if (res.result?.value?.error) {
+          captureErrors.push(res.result.value.error);
+        }
+      } catch (e) {
+        captureErrors.push(e.message);
+      }
     }
+    if (captureResult) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
 
-    if (!captureResult) {
-        // Debug info
-        return {
-            error: 'Capture failed. Errors: ' + captureErrors.join(', '),
-            clickResult: clickResult
-        };
-    }
+  if (!captureResult) {
+    // Debug info
+    return {
+      error: `Capture failed. Errors: ${captureErrors.join(", ")}`,
+      clickResult,
+    };
+  }
 
-    // Step 3: Post-process result
-    if (captureResult.isFile && captureResult.uri) {
-        try {
-            // Read file content from disk
-            const fileUrl = captureResult.uri;
-            let filePath;
-            if (fileUrl.startsWith('file://')) {
-                filePath = fileURLToPath(fileUrl);
-            } else {
-                filePath = fileUrl; // Fallback
-            }
+  // Step 3: Post-process result
+  if (captureResult.isFile && captureResult.uri) {
+    try {
+      // Read file content from disk
+      const fileUrl = captureResult.uri;
+      let filePath;
+      if (fileUrl.startsWith("file://")) {
+        filePath = fileURLToPath(fileUrl);
+      } else {
+        filePath = fileUrl; // Fallback
+      }
 
-            if (fs.existsSync(filePath)) {
-                const content = fs.readFileSync(filePath, 'utf8');
-                // Construct HTML with header for correct UI rendering
-                // Escape HTML content
-                const safeContent = content
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/"/g, "&quot;")
-                    .replace(/'/g, "&#039;");
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, "utf8");
+        // Construct HTML with header for correct UI rendering
+        // Escape HTML content
+        const safeContent = content
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
 
-                const fileName = filePath.split('/').pop();
+        const fileName = filePath.split("/").pop();
 
-                // Determine icon class based on extension (simple mapping)
-                const ext = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
-                const iconClass = `file-icon ${ext}-ext-file-icon ext-file-icon`;
+        // Determine icon class based on extension (simple mapping)
+        const ext = fileName.includes(".")
+          ? fileName.split(".").pop().toLowerCase()
+          : "";
+        const iconClass = `file-icon ${ext}-ext-file-icon ext-file-icon`;
 
-                const html = `
+        const html = `
                     <div class="flex flex-col h-full bg-[#1e1e1e] text-[#d4d4d4]">
                         <div class="flex items-center justify-between px-4 py-2 border-b border-[#2b2b2b] bg-[#252526]">
                             <span class="font-medium text-sm flex items-center gap-2">
@@ -736,26 +769,25 @@ async function captureArtifactContent(cdp, { buttonText, artifactTitle, isFile }
                     </div>
                  `;
 
-                return {
-                    success: true,
-                    html: html,
-                    className: 'file-view-container'
-                };
-            } else {
-                return { error: 'File read failed: Path not found ' + filePath };
-            }
-        } catch (e) {
-            return { error: 'File read error: ' + e.message };
-        }
+        return {
+          success: true,
+          html,
+          className: "file-view-container",
+        };
+      }
+      return { error: `File read failed: Path not found ${filePath}` };
+    } catch (e) {
+      return { error: `File read error: ${e.message}` };
     }
+  }
 
-    return captureResult;
+  return captureResult;
 }
 
 // Fetch Asset via CDP (for proxying vscode-file://)
 async function fetchAssetViaCDP(cdp, url) {
-    // The script must return the base64 data and verify content type
-    const SCRIPT = `(async () => {
+  // The script must return the base64 data and verify content type
+  const SCRIPT = `(async () => {
         try {
             const response = await fetch("${url}");
             if (!response.ok) return { error: 'Fetch failed: ' + response.status };
@@ -776,26 +808,26 @@ async function fetchAssetViaCDP(cdp, url) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: SCRIPT,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value?.success) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Asset fetch failed in all contexts' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: SCRIPT,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value?.success) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Asset fetch failed in all contexts" };
 }
 
 // Inject message into Antigravity
 async function injectMessage(cdp, text) {
-    // Use JSON.stringify for robust escaping (handles ", \, newlines, backticks, unicode, etc.)
-    const safeText = JSON.stringify(text);
+  // Use JSON.stringify for robust escaping (handles ", \, newlines, backticks, unicode, etc.)
+  const safeText = JSON.stringify(text);
 
-    const EXPRESSION = `(async () => {
+  const EXPRESSION = `(async () => {
         const cancel = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
         if (cancel && cancel.offsetParent !== null) return { ok:false, reason:"busy" };
 
@@ -850,29 +882,29 @@ async function injectMessage(cdp, text) {
         return { ok:true, method:"enter_keypress" };
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const result = await cdp.call("Runtime.evaluate", {
-                expression: EXPRESSION,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
+  for (const ctx of cdp.contexts) {
+    try {
+      const result = await cdp.call("Runtime.evaluate", {
+        expression: EXPRESSION,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
 
-            if (result.result && result.result.value) {
-                return result.result.value;
-            }
-        } catch (e) { }
-    }
+      if (result.result && result.result.value) {
+        return result.result.value;
+      }
+    } catch (e) {}
+  }
 
-    return { ok: false, reason: "no_context" };
+  return { ok: false, reason: "no_context" };
 }
 
 // Set functionality mode (Fast vs Planning)
 async function setMode(cdp, mode) {
-    if (!['Fast', 'Planning'].includes(mode)) return { error: 'Invalid mode' };
+  if (!["Fast", "Planning"].includes(mode)) return { error: "Invalid mode" };
 
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             // STRATEGY: Find the element that IS the current mode indicator.
             // It will have text 'Fast' or 'Planning'.
@@ -960,23 +992,23 @@ async function setMode(cdp, mode) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Stop Generation
 async function stopGeneration(cdp) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         // Look for the cancel button
         const cancel = document.querySelector('[data-tooltip-id="input-send-button-cancel-tooltip"]');
         if (cancel && cancel.offsetParent !== null) {
@@ -1009,23 +1041,23 @@ async function stopGeneration(cdp) {
         return { error: 'No active generation found to stop' };
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Trigger AGQ - Click the AGQ button in IDE and extract model quota data
 async function triggerAgq(cdp) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             // Step 1: Find the AGQ element in the status bar
             // Use getElementById to avoid escaping issues with period in ID
@@ -1146,50 +1178,58 @@ async function triggerAgq(cdp) {
         }
     })()`;
 
-    // First try main frame (without contextId) - status bar is in main workbench
-    console.log('[AGQ] Trying main frame...');
-    try {
-        const res = await cdp.call("Runtime.evaluate", {
-            expression: EXP,
-            returnByValue: true,
-            awaitPromise: true
-        });
-        console.log('[AGQ] Main frame result:', JSON.stringify(res.result?.value || res.result));
-        if (res.result?.value?.success) return res.result.value;
-        // If we got an error but not a context error, return it for debugging
-        if (res.result?.value?.error && res.result?.value?.debug) {
-            console.log('[AGQ] Got debug info, trying contexts...');
-            // Continue to try contexts
-        } else if (res.result?.value) {
-            return res.result.value;
-        }
-    } catch (e) {
-        console.log('[AGQ] Main frame error:', e.message);
+  // First try main frame (without contextId) - status bar is in main workbench
+  console.log("[AGQ] Trying main frame...");
+  try {
+    const res = await cdp.call("Runtime.evaluate", {
+      expression: EXP,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    console.log(
+      "[AGQ] Main frame result:",
+      JSON.stringify(res.result?.value || res.result),
+    );
+    if (res.result?.value?.success) return res.result.value;
+    // If we got an error but not a context error, return it for debugging
+    if (res.result?.value?.error && res.result?.value?.debug) {
+      console.log("[AGQ] Got debug info, trying contexts...");
+      // Continue to try contexts
+    } else if (res.result?.value) {
+      return res.result.value;
     }
+  } catch (e) {
+    console.log("[AGQ] Main frame error:", e.message);
+  }
 
-    // Fall back to trying specific contexts
-    console.log('[AGQ] Trying', cdp.contexts.length, 'contexts...');
-    for (const ctx of cdp.contexts) {
-        try {
-            console.log('[AGQ] Trying context:', ctx.id);
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            console.log('[AGQ] Context', ctx.id, 'result:', JSON.stringify(res.result?.value || res.result));
-            if (res.result?.value?.success) return res.result.value;
-        } catch (e) {
-            console.log('[AGQ] Context', ctx.id, 'error:', e.message);
-        }
+  // Fall back to trying specific contexts
+  console.log("[AGQ] Trying", cdp.contexts.length, "contexts...");
+  for (const ctx of cdp.contexts) {
+    try {
+      console.log("[AGQ] Trying context:", ctx.id);
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      console.log(
+        "[AGQ] Context",
+        ctx.id,
+        "result:",
+        JSON.stringify(res.result?.value || res.result),
+      );
+      if (res.result?.value?.success) return res.result.value;
+    } catch (e) {
+      console.log("[AGQ] Context", ctx.id, "error:", e.message);
     }
-    return { error: 'Context failed - status bar not accessible' };
+  }
+  return { error: "Context failed - status bar not accessible" };
 }
 
 // Click Element (Remote)
 async function clickElement(cdp, { selector, index, textContent }) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             // Strategy: Find all elements matching the selector
             // If textContent is provided, filter by that too for safety
@@ -1214,24 +1254,24 @@ async function clickElement(cdp, { selector, index, textContent }) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value?.success) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Click failed in all contexts' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value?.success) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Click failed in all contexts" };
 }
 
 // Remote scroll - sync phone scroll to desktop
 async function remoteScroll(cdp, { scrollTop, scrollPercent }) {
-    // Try to scroll the chat container in Antigravity
-    const EXPRESSION = `(async () => {
+  // Try to scroll the chat container in Antigravity
+  const EXPRESSION = `(async () => {
         try {
             // Find the main scrollable chat container
             const scrollables = [...document.querySelectorAll('#cascade [class*="scroll"], #cascade [style*="overflow"]')]
@@ -1267,23 +1307,23 @@ async function remoteScroll(cdp, { scrollTop, scrollPercent }) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXPRESSION,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value?.success) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Scroll failed in all contexts' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXPRESSION,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value?.success) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Scroll failed in all contexts" };
 }
 
 // Set AI Model
 async function setModel(cdp, modelName) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             // STRATEGY: Find the element that IS the specific model we want to click.
             // But first we must find the Open Menu button.
@@ -1379,23 +1419,23 @@ async function setModel(cdp, modelName) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Get App State (Mode & Model)
 async function getAppState(cdp) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             const state = { mode: 'Unknown', model: 'Unknown' };
             
@@ -1460,22 +1500,22 @@ async function getAppState(cdp) {
         } catch(e) { return { error: e.toString() }; }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 async function checkAgentPanelVisibility(cdp) {
-    const SCRIPT = `(() => {
+  const SCRIPT = `(() => {
         const panel = document.getElementById('antigravity.agentPanel');
         if (!panel) return { found: false, error: 'Panel not found' };
         const parent = panel.parentElement;
@@ -1488,22 +1528,22 @@ async function checkAgentPanelVisibility(cdp) {
         };
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const result = await cdp.call("Runtime.evaluate", {
-                expression: SCRIPT,
-                returnByValue: true,
-                contextId: ctx.id
-            });
-            if (result.result?.value) return result.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const result = await cdp.call("Runtime.evaluate", {
+        expression: SCRIPT,
+        returnByValue: true,
+        contextId: ctx.id,
+      });
+      if (result.result?.value) return result.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Ensure Agent Panel is Visible
 async function ensureAgentPanelVisible(cdp) {
-    const SCRIPT = `(() => {
+  const SCRIPT = `(() => {
         const panel = document.getElementById('antigravity.agentPanel');
         if (!panel) return { success: false, error: 'Panel not found' };
         const parent = panel.parentElement;
@@ -1517,22 +1557,22 @@ async function ensureAgentPanelVisible(cdp) {
         };
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const result = await cdp.call("Runtime.evaluate", {
-                expression: SCRIPT,
-                returnByValue: true,
-                contextId: ctx.id
-            });
-            if (result.result?.value) return result.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const result = await cdp.call("Runtime.evaluate", {
+        expression: SCRIPT,
+        returnByValue: true,
+        contextId: ctx.id,
+      });
+      if (result.result?.value) return result.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Create New Conversation
 async function createNewConversation(cdp) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             // Find the button with the specific tooltip ID
             const btn = document.querySelector('a[data-tooltip-id="new-conversation-tooltip"]');
@@ -1582,23 +1622,23 @@ async function createNewConversation(cdp) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Trigger Generic IDE Action
 async function triggerIdeAction(cdp, action, index = 0) {
-    const EXP = `(async () => {
+  const EXP = `(async () => {
         try {
             let targetText = '';
             if ('${action}' === 'expand-all') targetText = 'Expand all';
@@ -1671,28 +1711,28 @@ async function triggerIdeAction(cdp, action, index = 0) {
         }
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: EXP,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) return res.result.value;
-        } catch (e) { }
-    }
-    return { error: 'Context failed' };
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: EXP,
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) return res.result.value;
+    } catch (e) {}
+  }
+  return { error: "Context failed" };
 }
 
 // Get Conversation History
 async function getConversations(cdp) {
-    // Phase 1: Click the button (in whatever context it exists)
-    let buttonClicked = false;
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: `(async () => {
+  // Phase 1: Click the button (in whatever context it exists)
+  let buttonClicked = false;
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: `(async () => {
                     const btn = document.querySelector('[data-past-conversations-toggle="true"]');
                     if (btn) {
                         btn.click();
@@ -1700,32 +1740,32 @@ async function getConversations(cdp) {
                     }
                     return false;
                 })()`,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) {
-                buttonClicked = true;
-                break;
-            }
-        } catch (e) { }
-    }
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) {
+        buttonClicked = true;
+        break;
+      }
+    } catch (e) {}
+  }
 
-    if (!buttonClicked) {
-        // It might be that the list is ALREADY open, so we shouldn't fail just yet.
-        // But if we couldn't even find the button to toggle it, that's notable.
-        // We'll proceed to Phase 2 just in case.
-    }
+  if (!buttonClicked) {
+    // It might be that the list is ALREADY open, so we shouldn't fail just yet.
+    // But if we couldn't even find the button to toggle it, that's notable.
+    // We'll proceed to Phase 2 just in case.
+  }
 
-    // Phase 2: Find the overlay (in whatever context it exists)
-    // Retry logic allowing for cross-context search
-    for (let attempt = 0; attempt < 20; attempt++) {
-        // Wait a bit between attempts (and initial wait)
-        await new Promise(r => setTimeout(r, 150));
+  // Phase 2: Find the overlay (in whatever context it exists)
+  // Retry logic allowing for cross-context search
+  for (let attempt = 0; attempt < 20; attempt++) {
+    // Wait a bit between attempts (and initial wait)
+    await new Promise((r) => setTimeout(r, 150));
 
-        for (const ctx of cdp.contexts) {
-            try {
-                const EXTRACT_SCRIPT = `(async () => {
+    for (const ctx of cdp.contexts) {
+      try {
+        const EXTRACT_SCRIPT = `(async () => {
                     const overlay = document.querySelector('.jetski-fast-pick');
                     if (!overlay || overlay.offsetHeight === 0) return null;
 
@@ -1798,33 +1838,37 @@ async function getConversations(cdp) {
                     return { success: true, conversations, defaultWorkspace: currentSectionWorkspace };
                 })()`;
 
-                const res = await cdp.call("Runtime.evaluate", {
-                    expression: EXTRACT_SCRIPT,
-                    returnByValue: true,
-                    awaitPromise: true,
-                    contextId: ctx.id
-                });
+        const res = await cdp.call("Runtime.evaluate", {
+          expression: EXTRACT_SCRIPT,
+          returnByValue: true,
+          awaitPromise: true,
+          contextId: ctx.id,
+        });
 
-                if (res.result?.value?.success) {
-                    return res.result.value;
-                }
-            } catch (e) { }
+        if (res.result?.value?.success) {
+          return res.result.value;
         }
+      } catch (e) {}
     }
+  }
 
-    return { error: buttonClicked ? 'Button clicked but list not found (timeout)' : 'History button not found' };
+  return {
+    error: buttonClicked
+      ? "Button clicked but list not found (timeout)"
+      : "History button not found",
+  };
 }
 
 // Select a Conversation
 async function selectConversation(cdp, { index, title }) {
-    const safeTitle = JSON.stringify(title);
+  const safeTitle = JSON.stringify(title);
 
-    // Phase 1: Open List
-    let buttonClicked = false;
-    for (const ctx of cdp.contexts) {
-        try {
-            const res = await cdp.call("Runtime.evaluate", {
-                expression: `(async () => {
+  // Phase 1: Open List
+  let buttonClicked = false;
+  for (const ctx of cdp.contexts) {
+    try {
+      const res = await cdp.call("Runtime.evaluate", {
+        expression: `(async () => {
                     const btn = document.querySelector('[data-past-conversations-toggle="true"]');
                     if (btn) {
                         btn.click();
@@ -1832,24 +1876,24 @@ async function selectConversation(cdp, { index, title }) {
                     }
                     return false;
                 })()`,
-                returnByValue: true,
-                awaitPromise: true,
-                contextId: ctx.id
-            });
-            if (res.result?.value) {
-                buttonClicked = true;
-                break;
-            }
-        } catch (e) { }
-    }
+        returnByValue: true,
+        awaitPromise: true,
+        contextId: ctx.id,
+      });
+      if (res.result?.value) {
+        buttonClicked = true;
+        break;
+      }
+    } catch (e) {}
+  }
 
-    // Phase 2: Find & Click Item
-    for (let attempt = 0; attempt < 20; attempt++) {
-        await new Promise(r => setTimeout(r, 150));
+  // Phase 2: Find & Click Item
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise((r) => setTimeout(r, 150));
 
-        for (const ctx of cdp.contexts) {
-            try {
-                const SELECT_SCRIPT = `(async () => {
+    for (const ctx of cdp.contexts) {
+      try {
+        const SELECT_SCRIPT = `(async () => {
                     const overlay = document.querySelector('.jetski-fast-pick');
                     if (!overlay || overlay.offsetHeight === 0) return null;
 
@@ -1899,456 +1943,499 @@ async function selectConversation(cdp, { index, title }) {
                     return { error: 'Item not found in list' };
                 })()`;
 
-                const res = await cdp.call("Runtime.evaluate", {
-                    expression: SELECT_SCRIPT,
-                    returnByValue: true,
-                    awaitPromise: true,
-                    contextId: ctx.id
-                });
+        const res = await cdp.call("Runtime.evaluate", {
+          expression: SELECT_SCRIPT,
+          returnByValue: true,
+          awaitPromise: true,
+          contextId: ctx.id,
+        });
 
-                if (res.result?.value?.success) return res.result.value;
-                // If we found the list but not the item, that's a specific error we might generally encounter
-                // But we'll keep retrying in case the list is still rendering items
-            } catch (e) { }
-        }
+        if (res.result?.value?.success) return res.result.value;
+        // If we found the list but not the item, that's a specific error we might generally encounter
+        // But we'll keep retrying in case the list is still rendering items
+      } catch (e) {}
     }
+  }
 
-    return { error: buttonClicked ? 'List opened but conversation not found' : 'History button not found' };
+  return {
+    error: buttonClicked
+      ? "List opened but conversation not found"
+      : "History button not found",
+  };
 }
 
 // Simple hash function
 function hashString(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return hash.toString(36);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash &= hash;
+  }
+  return hash.toString(36);
 }
 
 // Initialize CDP connection
 async function initCDP() {
-    console.log('🔍 Discovering VS Code CDP endpoint...');
-    const cdpInfo = await discoverCDP();
-    console.log(`✅ Found VS Code on port ${cdpInfo.port}`);
+  console.log("🔍 Discovering VS Code CDP endpoint...");
+  const cdpInfo = await discoverCDP();
+  console.log(`✅ Found VS Code on port ${cdpInfo.port}`);
 
-    console.log('🔌 Connecting to CDP...');
-    cdpConnection = await connectCDP(cdpInfo.url);
-    console.log(`✅ Connected! Found ${cdpConnection.contexts.length} execution contexts\n`);
+  console.log("🔌 Connecting to CDP...");
+  cdpConnection = await connectCDP(cdpInfo.url);
+  console.log(
+    `✅ Connected! Found ${cdpConnection.contexts.length} execution contexts\n`,
+  );
 
-    // Check and ensure agent panel is visible
-    const panelStatus = await checkAgentPanelVisibility(cdpConnection);
-    if (panelStatus.found && !panelStatus.visible) {
-        console.log('⚠️ Agent panel hidden, making visible...');
-        await ensureAgentPanelVisible(cdpConnection);
-        console.log('✅ Agent panel now visible');
-    } else if (!panelStatus.found) {
-        console.log('ℹ️ Agent panel not found in current context');
-    }
+  // Check and ensure agent panel is visible
+  const panelStatus = await checkAgentPanelVisibility(cdpConnection);
+  if (panelStatus.found && !panelStatus.visible) {
+    console.log("⚠️ Agent panel hidden, making visible...");
+    await ensureAgentPanelVisible(cdpConnection);
+    console.log("✅ Agent panel now visible");
+  } else if (!panelStatus.found) {
+    console.log("ℹ️ Agent panel not found in current context");
+  }
 }
 
 // Background polling
 async function startPolling(wss) {
-    setInterval(async () => {
-        if (!cdpConnection) return;
+  setInterval(async () => {
+    if (!cdpConnection) return;
 
-        try {
-            const snapshot = await captureSnapshot(cdpConnection);
-            if (snapshot?.error) {
-                console.log('⚠️ Snapshot error:', snapshot.error);
-            } else if (!snapshot) {
-                console.log('⚠️ Snapshot returned null (cascade not found in any context)');
+    try {
+      const snapshot = await captureSnapshot(cdpConnection);
+      if (snapshot?.error) {
+        console.log("⚠️ Snapshot error:", snapshot.error);
+      } else if (!snapshot) {
+        console.log(
+          "⚠️ Snapshot returned null (cascade not found in any context)",
+        );
+      }
+      if (snapshot && !snapshot.error) {
+        const hash = hashString(snapshot.html);
+
+        // Only update if content changed
+        if (hash !== lastSnapshotHash) {
+          lastSnapshot = snapshot;
+          lastSnapshotHash = hash;
+
+          // Broadcast to all connected clients
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(
+                JSON.stringify({
+                  type: "snapshot_update",
+                  timestamp: new Date().toISOString(),
+                }),
+              );
             }
-            if (snapshot && !snapshot.error) {
-                const hash = hashString(snapshot.html);
+          });
 
-                // Only update if content changed
-                if (hash !== lastSnapshotHash) {
-                    lastSnapshot = snapshot;
-                    lastSnapshotHash = hash;
-
-                    // Broadcast to all connected clients
-                    wss.clients.forEach(client => {
-                        if (client.readyState === WebSocket.OPEN) {
-                            client.send(JSON.stringify({
-                                type: 'snapshot_update',
-                                timestamp: new Date().toISOString()
-                            }));
-                        }
-                    });
-
-                    console.log(`📸 Snapshot updated (hash: ${hash})`);
-                }
-            }
-        } catch (err) {
-            console.error('Poll error:', err.message);
+          console.log(`📸 Snapshot updated (hash: ${hash})`);
         }
-    }, POLL_INTERVAL);
+      }
+    } catch (err) {
+      console.error("Poll error:", err.message);
+    }
+  }, POLL_INTERVAL);
 }
 
 // Create Express app
 async function createServer() {
-    const app = express();
+  const app = express();
 
-    // Check for SSL certificates
-    const keyPath = join(__dirname, 'certs', 'server.key');
-    const certPath = join(__dirname, 'certs', 'server.cert');
-    const hasSSL = fs.existsSync(keyPath) && fs.existsSync(certPath);
+  // Check for SSL certificates
+  const keyPath = join(__dirname, "certs", "server.key");
+  const certPath = join(__dirname, "certs", "server.cert");
+  const hasSSL = fs.existsSync(keyPath) && fs.existsSync(certPath);
 
-    let server;
-    let httpsServer = null;
+  let server;
+  let httpsServer = null;
 
-    if (hasSSL) {
-        const sslOptions = {
-            key: fs.readFileSync(keyPath),
-            cert: fs.readFileSync(certPath)
-        };
-        httpsServer = https.createServer(sslOptions, app);
-        server = httpsServer;
-    } else {
-        server = http.createServer(app);
+  if (hasSSL) {
+    const sslOptions = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    };
+    httpsServer = https.createServer(sslOptions, app);
+    server = httpsServer;
+  } else {
+    server = http.createServer(app);
+  }
+
+  const wss = new WebSocketServer({ server });
+
+  // Store wss reference for reconnection broadcasts
+  reconnectState.wss = wss;
+
+  app.use(express.json());
+  app.use(express.static(join(__dirname, "public")));
+
+  // Get current snapshot
+  app.get("/snapshot", (req, res) => {
+    if (!lastSnapshot) {
+      return res.status(503).json({ error: "No snapshot available yet" });
+    }
+    res.json(lastSnapshot);
+  });
+
+  // Health check endpoint
+  app.get("/health", (req, res) => {
+    res.json({
+      status: "ok",
+      cdpConnected: cdpConnection?.ws?.readyState === 1, // WebSocket.OPEN = 1
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      https: hasSSL,
+    });
+  });
+
+  // SSL status endpoint
+  app.get("/ssl-status", (req, res) => {
+    const keyPath = join(__dirname, "certs", "server.key");
+    const certPath = join(__dirname, "certs", "server.cert");
+    const certsExist = fs.existsSync(keyPath) && fs.existsSync(certPath);
+    res.json({
+      enabled: hasSSL,
+      certsExist,
+      message: hasSSL
+        ? "HTTPS is active"
+        : certsExist
+          ? "Certificates exist, restart server to enable HTTPS"
+          : "No certificates found",
+    });
+  });
+
+  // Generate SSL certificates endpoint
+  app.post("/generate-ssl", async (req, res) => {
+    try {
+      const { execSync } = await import("child_process");
+      execSync("node generate_ssl.js", { cwd: __dirname, stdio: "pipe" });
+      res.json({
+        success: true,
+        message:
+          "SSL certificates generated! Restart the server to enable HTTPS.",
+      });
+    } catch (e) {
+      res.status(500).json({
+        success: false,
+        error: e.message,
+      });
+    }
+  });
+
+  // Debug UI Endpoint
+  app.get("/debug-ui", async (req, res) => {
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP not connected" });
+    const uiTree = await inspectUI(cdpConnection);
+    console.log("--- UI TREE ---");
+    console.log(uiTree);
+    console.log("---------------");
+    res.type("json").send(uiTree);
+  });
+
+  // Set Mode
+  app.post("/set-mode", async (req, res) => {
+    const { mode } = req.body;
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await setMode(cdpConnection, mode);
+    res.json(result);
+  });
+
+  // Set Model
+  app.post("/set-model", async (req, res) => {
+    const { model } = req.body;
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await setModel(cdpConnection, model);
+    res.json(result);
+  });
+
+  // List Workspaces
+  app.get("/api/workspaces", async (req, res) => {
+    try {
+      const workspaces = await getAllWorkspaces();
+      res.json({
+        success: true,
+        workspaces,
+        currentWorkspaceId,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Switch Workspace
+  app.post("/api/workspace/switch", async (req, res) => {
+    try {
+      const { id } = req.body;
+      if (!id) return res.status(400).json({ error: "Missing workspace ID" });
+
+      console.log(`Switching to workspace ${id}...`);
+
+      // Discover with specific ID will return the correct URL
+      const cdpInfo = await discoverCDP(id);
+
+      // Close existing connection
+      if (cdpConnection && cdpConnection.ws) {
+        try {
+          cdpConnection.ws.close();
+        } catch (e) {}
+        cdpConnection = null;
+      }
+
+      // Connect to new workspace
+      cdpConnection = await connectCDP(cdpInfo.url);
+
+      console.log(`Switched workspace to ${id}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Switch failed:", error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Stop Generation
+  app.post("/stop", async (req, res) => {
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await stopGeneration(cdpConnection);
+    res.json(result);
+  });
+
+  // Trigger AGQ - Get Model Quotas
+  app.post("/trigger-agq", async (req, res) => {
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    try {
+      const result = await triggerAgq(cdpConnection);
+      res.json(result);
+    } catch (e) {
+      console.error("[AGQ] Error:", e);
+      res.status(500).json({ error: `Server error: ${e.message}` });
+    }
+  });
+
+  // Get conversation history
+  app.get("/conversations", async (req, res) => {
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await getConversations(cdpConnection);
+    res.json(result);
+  });
+
+  // Select/switch conversation
+  app.post("/select-conversation", async (req, res) => {
+    const { index, title } = req.body;
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await selectConversation(cdpConnection, { index, title });
+    res.json(result);
+  });
+
+  // Create New Conversation
+  app.post("/new-conversation", async (req, res) => {
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await createNewConversation(cdpConnection);
+    res.json(result);
+  });
+
+  // Get artifact content
+  app.post("/get-artifact", async (req, res) => {
+    const { buttonText = "Open", artifactTitle, isFile } = req.body;
+    if (!cdpConnection)
+      return res.status(503).json({ error: "CDP disconnected" });
+    const result = await captureArtifactContent(cdpConnection, {
+      buttonText,
+      artifactTitle,
+      isFile,
+    });
+    res.json(result);
+  });
+
+  // Proxy Asset (vscode-file://)
+  app.get("/proxy-asset", async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send("Missing url parameter");
+    if (!cdpConnection) return res.status(503).send("CDP not connected");
+
+    // Decode the URL before passing to CDP
+    const targetUrl = decodeURIComponent(url);
+
+    // Log the request to help debug
+    console.log(`🖼️ Proxying asset: ${targetUrl.split("/").pop()}`);
+
+    // Basic security check: ensure it's a vscode-file or file scheme (or whatever internal scheme used)
+    if (!targetUrl.startsWith("vscode-file://")) {
+      // Optional: Allow other schemes if needed, but start restrictive
+      // console.log('Proxy request for non-vscode URL:', targetUrl);
     }
 
-    const wss = new WebSocketServer({ server });
+    const result = await fetchAssetViaCDP(cdpConnection, targetUrl);
 
-    // Store wss reference for reconnection broadcasts
-    reconnectState.wss = wss;
+    if (result.error || !result.success) {
+      console.error(
+        `❌ Asset fetch failed: ${targetUrl.split("/").pop()} - ${result.error}`,
+      );
+      return res.status(404).send(result.error || "Asset not found");
+    }
 
-    app.use(express.json());
-    app.use(express.static(join(__dirname, 'public')));
+    res.set("Content-Type", result.type);
+    res.set("Cache-Control", "public, max-age=86400"); // Cache for 24 hours
+    res.send(Buffer.from(result.data, "base64"));
+  });
 
-    // Get current snapshot
-    app.get('/snapshot', (req, res) => {
-        if (!lastSnapshot) {
-            return res.status(503).json({ error: 'No snapshot available yet' });
-        }
-        res.json(lastSnapshot);
+  // Send message
+  app.post("/send", async (req, res) => {
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: "Message required" });
+    }
+
+    if (!cdpConnection) {
+      return res.status(503).json({ error: "CDP not connected" });
+    }
+
+    const result = await injectMessage(cdpConnection, message);
+
+    // Always return 200 - the message usually goes through even if CDP reports issues
+    // The client will refresh and see if the message appeared
+    res.json({
+      success: result.ok !== false,
+      method: result.method || "attempted",
+      details: result,
     });
+  });
 
-    // Health check endpoint
-    app.get('/health', (req, res) => {
-        res.json({
-            status: 'ok',
-            cdpConnected: cdpConnection?.ws?.readyState === 1, // WebSocket.OPEN = 1
-            uptime: process.uptime(),
-            timestamp: new Date().toISOString(),
-            https: hasSSL
-        });
+  // WebSocket connection
+  wss.on("connection", (ws) => {
+    console.log("📱 Client connected");
+
+    ws.on("close", () => {
+      console.log("📱 Client disconnected");
     });
+  });
 
-    // SSL status endpoint
-    app.get('/ssl-status', (req, res) => {
-        const keyPath = join(__dirname, 'certs', 'server.key');
-        const certPath = join(__dirname, 'certs', 'server.cert');
-        const certsExist = fs.existsSync(keyPath) && fs.existsSync(certPath);
-        res.json({
-            enabled: hasSSL,
-            certsExist: certsExist,
-            message: hasSSL ? 'HTTPS is active' :
-                certsExist ? 'Certificates exist, restart server to enable HTTPS' :
-                    'No certificates found'
-        });
-    });
-
-    // Generate SSL certificates endpoint
-    app.post('/generate-ssl', async (req, res) => {
-        try {
-            const { execSync } = await import('child_process');
-            execSync('node generate_ssl.js', { cwd: __dirname, stdio: 'pipe' });
-            res.json({
-                success: true,
-                message: 'SSL certificates generated! Restart the server to enable HTTPS.'
-            });
-        } catch (e) {
-            res.status(500).json({
-                success: false,
-                error: e.message
-            });
-        }
-    });
-
-    // Debug UI Endpoint
-    app.get('/debug-ui', async (req, res) => {
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
-        const uiTree = await inspectUI(cdpConnection);
-        console.log('--- UI TREE ---');
-        console.log(uiTree);
-        console.log('---------------');
-        res.type('json').send(uiTree);
-    });
-
-    // Set Mode
-    app.post('/set-mode', async (req, res) => {
-        const { mode } = req.body;
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await setMode(cdpConnection, mode);
-        res.json(result);
-    });
-
-    // Set Model
-    app.post('/set-model', async (req, res) => {
-        const { model } = req.body;
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await setModel(cdpConnection, model);
-        res.json(result);
-    });
-
-    // List Workspaces
-    app.get('/api/workspaces', async (req, res) => {
-        try {
-            const workspaces = await getAllWorkspaces();
-            res.json({
-                success: true,
-                workspaces,
-                currentWorkspaceId: currentWorkspaceId
-            });
-        } catch (error) {
-            res.status(500).json({ success: false, error: error.message });
-        }
-    });
-
-    // Switch Workspace
-    app.post('/api/workspace/switch', async (req, res) => {
-        try {
-            const { id } = req.body;
-            if (!id) return res.status(400).json({ error: 'Missing workspace ID' });
-
-            console.log(`Switching to workspace ${id}...`);
-
-            // Discover with specific ID will return the correct URL
-            const cdpInfo = await discoverCDP(id);
-
-            // Close existing connection
-            if (cdpConnection && cdpConnection.ws) {
-                try { cdpConnection.ws.close(); } catch (e) { }
-                cdpConnection = null;
-            }
-
-            // Connect to new workspace
-            cdpConnection = await connectCDP(cdpInfo.url);
-
-            console.log(`Switched workspace to ${id}`);
-            res.json({ success: true });
-
-        } catch (error) {
-            console.error('Switch failed:', error);
-            res.status(500).json({ success: false, error: error.message });
-        }
-    });
-
-    // Stop Generation
-    app.post('/stop', async (req, res) => {
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await stopGeneration(cdpConnection);
-        res.json(result);
-    });
-
-    // Trigger AGQ - Get Model Quotas
-    app.post('/trigger-agq', async (req, res) => {
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        try {
-            const result = await triggerAgq(cdpConnection);
-            res.json(result);
-        } catch (e) {
-            console.error('[AGQ] Error:', e);
-            res.status(500).json({ error: 'Server error: ' + e.message });
-        }
-    });
-
-    // Get conversation history
-    app.get('/conversations', async (req, res) => {
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await getConversations(cdpConnection);
-        res.json(result);
-    });
-
-    // Select/switch conversation
-    app.post('/select-conversation', async (req, res) => {
-        const { index, title } = req.body;
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await selectConversation(cdpConnection, { index, title });
-        res.json(result);
-    });
-
-    // Create New Conversation
-    app.post('/new-conversation', async (req, res) => {
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await createNewConversation(cdpConnection);
-        res.json(result);
-    });
-
-    // Get artifact content
-    app.post('/get-artifact', async (req, res) => {
-        const { buttonText = 'Open', artifactTitle, isFile } = req.body;
-        if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-        const result = await captureArtifactContent(cdpConnection, { buttonText, artifactTitle, isFile });
-        res.json(result);
-    });
-
-    // Proxy Asset (vscode-file://)
-    app.get('/proxy-asset', async (req, res) => {
-        const { url } = req.query;
-        if (!url) return res.status(400).send('Missing url parameter');
-        if (!cdpConnection) return res.status(503).send('CDP not connected');
-
-        // Decode the URL before passing to CDP
-        const targetUrl = decodeURIComponent(url);
-
-        // Log the request to help debug
-        console.log(`🖼️ Proxying asset: ${targetUrl.split('/').pop()}`);
-
-        // Basic security check: ensure it's a vscode-file or file scheme (or whatever internal scheme used)
-        if (!targetUrl.startsWith('vscode-file://')) {
-            // Optional: Allow other schemes if needed, but start restrictive
-            // console.log('Proxy request for non-vscode URL:', targetUrl);
-        }
-
-        const result = await fetchAssetViaCDP(cdpConnection, targetUrl);
-
-        if (result.error || !result.success) {
-            console.error(`❌ Asset fetch failed: ${targetUrl.split('/').pop()} - ${result.error}`);
-            return res.status(404).send(result.error || 'Asset not found');
-        }
-
-        res.set('Content-Type', result.type);
-        res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
-        res.send(Buffer.from(result.data, 'base64'));
-    });
-
-    // Send message
-    app.post('/send', async (req, res) => {
-        const { message } = req.body;
-
-        if (!message) {
-            return res.status(400).json({ error: 'Message required' });
-        }
-
-        if (!cdpConnection) {
-            return res.status(503).json({ error: 'CDP not connected' });
-        }
-
-        const result = await injectMessage(cdpConnection, message);
-
-        // Always return 200 - the message usually goes through even if CDP reports issues
-        // The client will refresh and see if the message appeared
-        res.json({
-            success: result.ok !== false,
-            method: result.method || 'attempted',
-            details: result
-        });
-    });
-
-    // WebSocket connection
-    wss.on('connection', (ws) => {
-        console.log('📱 Client connected');
-
-        ws.on('close', () => {
-            console.log('📱 Client disconnected');
-        });
-    });
-
-    return { server, wss, app, hasSSL };
+  return { server, wss, app, hasSSL };
 }
 
 // Main
 async function main() {
-    try {
-        await initCDP();
+  try {
+    await initCDP();
 
-        const { server, wss, app, hasSSL } = await createServer();
+    const { server, wss, app, hasSSL } = await createServer();
 
-        // Start background polling
-        startPolling(wss);
+    // Start background polling
+    startPolling(wss);
 
-        // Remote Click
-        app.post('/remote-click', async (req, res) => {
-            const { selector, index, textContent } = req.body;
-            if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-            const result = await clickElement(cdpConnection, { selector, index, textContent });
-            res.json(result);
-        });
+    // Remote Click
+    app.post("/remote-click", async (req, res) => {
+      const { selector, index, textContent } = req.body;
+      if (!cdpConnection)
+        return res.status(503).json({ error: "CDP disconnected" });
+      const result = await clickElement(cdpConnection, {
+        selector,
+        index,
+        textContent,
+      });
+      res.json(result);
+    });
 
-        // Remote Scroll - sync phone scroll to desktop
-        app.post('/remote-scroll', async (req, res) => {
-            const { scrollTop, scrollPercent } = req.body;
-            if (!cdpConnection) return res.status(503).json({ error: 'CDP disconnected' });
-            const result = await remoteScroll(cdpConnection, { scrollTop, scrollPercent });
-            res.json(result);
-        });
+    // Remote Scroll - sync phone scroll to desktop
+    app.post("/remote-scroll", async (req, res) => {
+      const { scrollTop, scrollPercent } = req.body;
+      if (!cdpConnection)
+        return res.status(503).json({ error: "CDP disconnected" });
+      const result = await remoteScroll(cdpConnection, {
+        scrollTop,
+        scrollPercent,
+      });
+      res.json(result);
+    });
 
-        // Get App State
-        app.get('/app-state', async (req, res) => {
-            if (!cdpConnection) return res.json({ mode: 'Unknown', model: 'Unknown' });
-            const result = await getAppState(cdpConnection);
-            res.json(result);
-        });
+    // Get App State
+    app.get("/app-state", async (req, res) => {
+      if (!cdpConnection)
+        return res.json({ mode: "Unknown", model: "Unknown" });
+      const result = await getAppState(cdpConnection);
+      res.json(result);
+    });
 
-        // Agent Panel Visibility Check
-        app.get('/agent-panel-status', async (req, res) => {
-            if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
-            const status = await checkAgentPanelVisibility(cdpConnection);
-            res.json(status);
-        });
+    // Agent Panel Visibility Check
+    app.get("/agent-panel-status", async (req, res) => {
+      if (!cdpConnection)
+        return res.status(503).json({ error: "CDP not connected" });
+      const status = await checkAgentPanelVisibility(cdpConnection);
+      res.json(status);
+    });
 
-        // Force Agent Panel Visible
-        app.post('/agent-panel-show', async (req, res) => {
-            if (!cdpConnection) return res.status(503).json({ error: 'CDP not connected' });
-            const result = await ensureAgentPanelVisible(cdpConnection);
-            res.json(result);
-        });
+    // Force Agent Panel Visible
+    app.post("/agent-panel-show", async (req, res) => {
+      if (!cdpConnection)
+        return res.status(503).json({ error: "CDP not connected" });
+      const result = await ensureAgentPanelVisible(cdpConnection);
+      res.json(result);
+    });
 
-        // Trigger generic action
-        app.post('/trigger-action', async (req, res) => {
-            if (!cdpConnection) return res.status(503).json({ error: 'No CDP connection' });
-            const { action, index } = req.body;
+    // Trigger generic action
+    app.post("/trigger-action", async (req, res) => {
+      if (!cdpConnection)
+        return res.status(503).json({ error: "No CDP connection" });
+      const { action, index } = req.body;
 
-            try {
-                const result = await triggerIdeAction(cdpConnection, action, index);
-                if (result && result.success) {
-                    res.json({ success: true });
-                } else {
-                    res.status(500).json({ error: result?.error || 'Action failed' });
-                }
-            } catch (e) {
-                res.status(500).json({ error: e.toString() });
-            }
-        });
+      try {
+        const result = await triggerIdeAction(cdpConnection, action, index);
+        if (result && result.success) {
+          res.json({ success: true });
+        } else {
+          res.status(500).json({ error: result?.error || "Action failed" });
+        }
+      } catch (e) {
+        res.status(500).json({ error: e.toString() });
+      }
+    });
 
-        // Start server
-        const PORT = process.env.PORT || 3000;
-        const localIP = getLocalIP();
-        const protocol = hasSSL ? 'https' : 'http';
-        server.listen(PORT, '0.0.0.0', () => {
-            console.log(`🚀 Server running on ${protocol}://${localIP}:${PORT}`);
-            if (hasSSL) {
-                console.log(`💡 First time on phone? Accept the security warning to proceed.`);
-            }
-        });
+    // Start server
+    const PORT = process.env.PORT || 3000;
+    const localIP = getLocalIP();
+    const protocol = hasSSL ? "https" : "http";
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Server running on ${protocol}://${localIP}:${PORT}`);
+      if (hasSSL) {
+        console.log(
+          `💡 First time on phone? Accept the security warning to proceed.`,
+        );
+      }
+    });
 
-        // Graceful shutdown handlers
-        const gracefulShutdown = (signal) => {
-            console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
-            wss.close(() => {
-                console.log('   WebSocket server closed');
-            });
-            server.close(() => {
-                console.log('   HTTP server closed');
-            });
-            if (cdpConnection?.ws) {
-                cdpConnection.ws.close();
-                console.log('   CDP connection closed');
-            }
-            setTimeout(() => process.exit(0), 1000);
-        };
+    // Graceful shutdown handlers
+    const gracefulShutdown = (signal) => {
+      console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+      wss.close(() => {
+        console.log("   WebSocket server closed");
+      });
+      server.close(() => {
+        console.log("   HTTP server closed");
+      });
+      if (cdpConnection?.ws) {
+        cdpConnection.ws.close();
+        console.log("   CDP connection closed");
+      }
+      setTimeout(() => process.exit(0), 1000);
+    };
 
-        process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-        process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-    } catch (err) {
-        console.error('❌ Fatal error:', err.message);
-        process.exit(1);
-    }
+    process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+    process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  } catch (err) {
+    console.error("❌ Fatal error:", err.message);
+    process.exit(1);
+  }
 }
 
 main();

@@ -1,0 +1,58 @@
+{
+    "parser": "@babel/eslint-parser",
+    "parserOptions": {
+        "requireConfigFile": false,
+        "babelOptions": {
+            "presets": [
+                "@babel/preset-env"
+            ]
+        },
+        "ecmaVersion": 2022,
+        "sourceType": "module"
+    },
+    "env": {
+        "browser": true,
+        "node": true,
+        "es2022": true
+    },
+    "extends": [
+        "airbnb-base",
+        "plugin:prettier/recommended"
+    ],
+    "plugins": [
+        "import",
+        "prettier"
+    ],
+    "rules": {
+        "prettier/prettier": "error",
+        "no-console": "off",
+        "import/no-unresolved": "off",
+        "import/extensions": "off",
+        "no-use-before-define": "off",
+        "no-plusplus": "off",
+        "no-nested-ternary": "off",
+        "no-bitwise": "off",
+        "no-restricted-syntax": "off",
+        "no-param-reassign": "off",
+        "no-promise-executor-return": "off",
+        "no-empty": "off",
+        "no-await-in-loop": "off",
+        "func-names": "off",
+        "import/prefer-default-export": "off",
+        "no-unused-vars": [
+            "warn",
+            {
+                "argsIgnorePattern": "^_",
+                "varsIgnorePattern": "^_"
+            }
+        ],
+        "no-alert": "off",
+        "no-continue": "off",
+        "no-void": "off",
+        "no-return-assign": "off",
+        "consistent-return": "off",
+        "no-underscore-dangle": "off",
+        "no-return-await": "off",
+        "no-shadow": "off"
+    }
+}

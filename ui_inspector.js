@@ -1,5 +1,5 @@
 export async function inspectUI(cdp) {
-    const INSPECT_SCRIPT = `(() => {
+  const INSPECT_SCRIPT = `(() => {
         // Find the input container (same logic as capture, but looking for what we essentially removed)
         const cascade = document.getElementById('cascade');
         if (!cascade) return 'No cascade found';
@@ -38,18 +38,18 @@ export async function inspectUI(cdp) {
         return JSON.stringify(serialize(inputContainer), null, 2);
     })()`;
 
-    for (const ctx of cdp.contexts) {
-        try {
-            const result = await cdp.call("Runtime.evaluate", {
-                expression: INSPECT_SCRIPT,
-                returnByValue: true,
-                contextId: ctx.id
-            });
+  for (const ctx of cdp.contexts) {
+    try {
+      const result = await cdp.call("Runtime.evaluate", {
+        expression: INSPECT_SCRIPT,
+        returnByValue: true,
+        contextId: ctx.id,
+      });
 
-            if (result.result && result.result.value) {
-                return result.result.value;
-            }
-        } catch (e) {}
-    }
-    return 'Failed to inspect';
+      if (result.result && result.result.value) {
+        return result.result.value;
+      }
+    } catch (e) {}
+  }
+  return "Failed to inspect";
 }
