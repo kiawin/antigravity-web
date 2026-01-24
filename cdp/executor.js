@@ -47,6 +47,7 @@ export async function executeInContexts(
   }
 
   // Try each execution context
+  let lastError = null;
   for (const ctx of cdp.contexts) {
     try {
       const res = await cdp.call("Runtime.evaluate", {
@@ -56,14 +57,25 @@ export async function executeInContexts(
         contextId: ctx.id,
       });
       if (res.result?.value) {
-        return res.result.value;
+        const val = res.result.value;
+        // Only return if it's a success result, otherwise continue trying other contexts
+        if (
+          val.success ||
+          val.html ||
+          (!val.error && Object.keys(val).length > 0)
+        ) {
+          return val;
+        }
+        // Store error result in case all contexts fail
+        lastError = val;
       }
     } catch (e) {
       // Continue to next context
     }
   }
 
-  return { error: "Script failed in all contexts" };
+  // Return the last error we got, or a generic failure message
+  return lastError || { error: "Script failed in all contexts" };
 }
 
 /**
