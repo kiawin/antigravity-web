@@ -10,821 +10,40 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
-    <style>
-        :root {
-            /* Map IDE variables to mobile app variable names */
-            /* Text Colors */
-            --text-main: var(--codeium-foreground, #ffffff);
-            --text-muted: var(--codeium-foreground-muted, #8e8e8e);
-
-            /* Backgrounds */
-            --bg-app: var(--codeium-editor-background, #000000);
-            --bg-panel: var(--codeium-panel-background, #0a0a0a);
-            --bg-input: var(--codeium-input-background, #141414);
-
-            /* UI Elements */
-            --border: var(--codeium-border-color, #1f1f1f);
-            --accent: var(--codeium-button-background, #3b82f6);
-            --accent-hover: var(--codeium-button-hover-background, #2563eb);
-
-            /* Status Colors */
-            --success: var(--codeium-success, #22c55e);
-            --warning: var(--codeium-warning, #eab308);
-            --error: var(--codeium-error, #ef4444);
-
-            --surface-hover: var(--codeium-list-hover-background, #1a1a1a);
-
-            /* IDE Tailwind theme color mappings (for prose content from IDE snapshots) */
-            --ide-text-color: var(--text-main);
-            --ide-editor-color: var(--text-main);
-            --ide-button-color: var(--accent);
-            --ide-button-secondary-color: var(--text-muted);
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        /* Prevent overscroll bounce on iOS */
-        html {
-            height: 100%;
-            overflow: hidden;
-            overscroll-behavior: none;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg-app);
-            color: var(--text-main);
-            height: 100%;
-            /* Revert to standard percent height */
-            position: relative;
-            /* Remove fixed */
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            /* Keep internal scroll */
-        }
-
-
-        .header {
-            background: var(--bg-app);
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0;
-            z-index: 50;
-        }
-
-        .conversation-header {
-            background: var(--bg-app);
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border);
-            display: none;
-            /* Hidden by default */
-            align-items: center;
-            justify-content: flex-start;
-            flex-shrink: 0;
-            z-index: 40;
-        }
-
-        .conversation-header span {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-main);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .header h1 {
-            font-size: 15px;
-            font-weight: 500;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .header h1 span {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            max-width: 180px;
-        }
-
-        .header-controls {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .header-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-
-        .header-btn:hover {
-            color: var(--text-main);
-            background: var(--surface-hover);
-        }
-
-        .header-btn svg {
-            width: 18px;
-            height: 18px;
-            stroke: currentColor;
-            stroke-width: 2;
-            fill: none;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            padding: 4px 8px;
-            border-radius: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--text-muted);
-            box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
-            transition: background 0.3s, box-shadow 0.3s;
-        }
-
-        .status-dot.connected {
-            background: var(--success);
-            box-shadow: 0 0 8px var(--success);
-        }
-
-        .status-dot.disconnected {
-            background: var(--warning);
-        }
-
-        /* Chat Container */
-        .chat-container {
-            flex: 1;
-            overflow-y: auto;
-            overflow-x: hidden;
-            position: relative;
-            background: var(--bg-app);
-        }
-
-        .chat-content {
-            min-height: 100%;
-            padding: 20px 16px;
-        }
-
-        .loading-state {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100%;
-            color: var(--text-muted);
-            gap: 12px;
-        }
-
-        .loading-spinner {
-            width: 24px;
-            height: 24px;
-            border: 2px solid var(--bg-input);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* Quick Actions Bar */
-        .quick-actions {
-            display: flex;
-            gap: 8px;
-            padding: 8px 16px 0 16px;
-            overflow-x: auto;
-            background: var(--bg-panel);
-        }
-
-        .action-chip {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: all 0.2s;
-        }
-
-        .action-chip:active {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-
-        /* Input Section */
-        .input-section {
-            background: var(--bg-app);
-            padding: 12px 16px;
-            padding-bottom: max(16px, env(safe-area-inset-bottom));
-            flex-shrink: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .thinking-indicator {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 13px;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-            opacity: 0.7;
-        }
-
-        .thinking-indicator::after {
-            content: "..";
-            animation: dots 1.5s infinite;
-        }
-
-        @keyframes dots {
-
-            0%,
-            20% {
-                content: "";
-            }
-
-            40% {
-                content: ".";
-            }
-
-            60% {
-                content: "..";
-            }
-
-            80%,
-            100% {
-                content: "...";
-            }
-        }
-
-        .input-container {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 12px 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        textarea {
-            width: 100%;
-            background: transparent !important;
-            border: none !important;
-            color: #ffffff !important;
-            font-size: 15px;
-            font-family: inherit;
-            line-height: 1.5;
-            resize: none;
-            padding: 0;
-            outline: none !important;
-            min-height: 24px;
-            max-height: 160px;
-            caret-color: var(--accent);
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-        }
-
-        textarea::placeholder {
-            color: #555;
-        }
-
-        .input-bottom-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .input-left-tools {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .input-right-tools {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .tool-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 2px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .tool-btn svg {
-            width: 18px;
-            height: 18px;
-            stroke: currentColor;
-            stroke-width: 2;
-        }
-
-        .pill-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            cursor: pointer;
-            padding: 2px 4px;
-        }
-
-        .pill-btn:hover {
-            color: var(--text-main);
-        }
-
-        .pill-btn svg {
-            width: 14px;
-            height: 14px;
-        }
-
-        .stop-gen-btn {
-            width: 20px;
-            height: 20px;
-            background: #ef4444;
-            border-radius: 4px;
-            cursor: pointer;
-            display: none;
-            /* Only show when generating */
-        }
-
-        /* Specific fix for Chrome/Android autofill background */
-        textarea:-webkit-autofill,
-        textarea:-webkit-autofill:hover,
-        textarea:-webkit-autofill:focus {
-            -webkit-text-fill-color: #ffffff;
-            -webkit-box-shadow: 0 0 0px 1000px var(--bg-input) inset;
-            transition: background-color 5000s ease-in-out 0s;
-        }
-
-        textarea:focus {
-            outline: none;
-        }
-
-        /* Hide scrollbar on textarea but allow scroll */
-        textarea::-webkit-scrollbar {
-            width: 0px;
-            background: transparent;
-        }
-
-        .send-btn {
-            background: transparent;
-            border: none;
-            color: var(--accent);
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            flex-shrink: 0;
-            align-self: flex-end;
-            /* Keep button at bottom when text wraps */
-            margin-bottom: 2px;
-        }
-
-        .send-btn:hover {
-            background: rgba(37, 99, 235, 0.1);
-        }
-
-        .send-btn svg {
-            width: 24px;
-            height: 24px;
-            fill: currentColor;
-            stroke: none;
-        }
-
-        .send-btn:active {
-            transform: scale(0.92);
-            background: var(--accent-hover);
-        }
-
-        .send-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background: var(--bg-input);
-        }
-
-        /* Floating Action Button (Scroll Down) */
-        .fab {
-            position: fixed;
-            bottom: 90px;
-            right: 20px;
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: var(--bg-panel);
-            color: var(--text-main);
-            border: 1px solid var(--border);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            opacity: 0;
-            transform: translateY(10px);
-            pointer-events: none;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 100;
-        }
-
-        .fab.show {
-            opacity: 1;
-            transform: translateY(0);
-            pointer-events: auto;
-        }
-
-        .fab:hover {
-            background: var(--bg-input);
-        }
-
-        .fab svg {
-            width: 20px;
-            height: 20px;
-            stroke: currentColor;
-            stroke-width: 2.5;
-        }
-
-        @keyframes spin-once {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .spin-anim {
-            animation: spin-once 0.5s ease-out;
-        }
-
-        /* Settings Bar */
-        .settings-bar {
-            background: var(--bg-panel);
-            padding: 8px 16px;
-            display: flex;
-            gap: 10px;
-            overflow-x: auto;
-            border-bottom: 1px solid var(--border);
-            flex-shrink: 0;
-            white-space: nowrap;
-        }
-
-        .setting-chip {
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            color: var(--text-muted);
-            padding: 6px 12px;
-            border-radius: 16px;
-            font-size: 12px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .setting-chip:active {
-            transform: scale(0.95);
-        }
-
-        .setting-chip.active {
-            background: rgba(59, 130, 246, 0.2);
-            color: var(--accent);
-            border-color: var(--accent);
-        }
-
-        /* Modal */
-        .modal-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.6);
-            backdrop-filter: blur(2px);
-            z-index: 2000;
-            display: none;
-            justify-content: center;
-            align-items: flex-end;
-        }
-
-        .modal-overlay.show {
-            display: flex;
-        }
-
-        /* Artifact Viewer Overlay */
-        .artifact-viewer-overlay {
-            position: fixed;
-            inset: 0;
-            background: var(--bg-app);
-            z-index: 3000;
-            display: flex;
-            flex-direction: column;
-            padding: 0;
-        }
-
-        /* Injected Controls */
-        .artifact-viewer-nav-injected {
-            display: flex;
-            align-items: center;
-            gap: 2px;
-            margin-right: 12px;
-        }
-
-        .artifact-viewer-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
-        }
-
-        .artifact-viewer-btn:hover,
-        .artifact-viewer-btn:not(:disabled):hover {
-            background: var(--bg-input);
-            color: var(--text-main);
-        }
-
-        .artifact-viewer-btn:disabled {
-            opacity: 0.3;
-            cursor: default;
-        }
-
-        .artifact-viewer-btn svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        /* Fallback FABs */
-        .artifact-viewer-fab-close,
-        .artifact-viewer-fab-back {
-            position: fixed;
-            z-index: 3010;
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 50%;
-            width: 36px;
-            height: 36px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-            color: var(--text-main);
-            cursor: pointer;
-        }
-
-        .artifact-viewer-fab-close {
-            top: 16px;
-            right: 16px;
-        }
-
-        .artifact-viewer-fab-back {
-            top: 16px;
-            left: 16px;
-        }
-
-        /* Content area adjustments */
-        .artifact-viewer-content {
-            flex: 1;
-            overflow-y: auto;
-            background: var(--bg-app);
-            padding: 0;
-            color: var(--text-main);
-            font-size: 14px;
-            line-height: 1.6;
-        }
-
-        .artifact-viewer-content h1,
-        .artifact-viewer-content h2,
-        .artifact-viewer-content h3 {
-            margin-top: 1em;
-            margin-bottom: 0.5em;
-        }
-
-        .artifact-viewer-content pre {
-            background: var(--bg-input);
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-        }
-
-        .artifact-viewer-content code {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-        }
-
-        .modal-panel {
-            background: var(--bg-panel);
-            width: 100%;
-            max-width: 500px;
-            border-radius: 20px 20px 0 0;
-            padding: 20px;
-            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-
-        @keyframes slideUp {
-            from {
-                transform: translateY(100%);
-            }
-
-            to {
-                transform: translateY(0);
-            }
-        }
-
-        .modal-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: var(--text-main);
-        }
-
-        .modal-option {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            color: var(--text-main);
-            font-size: 14px;
-            cursor: pointer;
-        }
-
-        .modal-option:last-child {
-            border-bottom: none;
-        }
-
-        .modal-option:active {
-            background: var(--bg-input);
-        }
-
-        /* SSL Banner */
-        .ssl-banner {
-            background: linear-gradient(90deg, #f59e0b, #d97706);
-            color: #000;
-            padding: 8px 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .ssl-banner button {
-            background: #000;
-            color: #fff;
-            border: none;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .ssl-banner button:hover {
-            background: #333;
-        }
-
-        .ssl-banner .dismiss-btn {
-            background: transparent;
-            color: #000;
-            font-size: 16px;
-            padding: 0 4px;
-        }
-
-        /* Prose dark mode overrides - force bright text on dark backgrounds */
-        /* Tailwind Typography's prose-p:text-ide-text-color doesn't work without theme config */
-        .prose,
-        .prose p,
-        .prose li,
-        .prose strong,
-        .prose span {
-            color: var(--text-main) !important;
-        }
-
-        .prose h1,
-        .prose h2,
-        .prose h3,
-        .prose h4,
-        .prose h5,
-        .prose h6 {
-            color: var(--text-main) !important;
-        }
-
-        .prose a {
-            color: var(--accent) !important;
-        }
-
-        .prose code {
-            color: var(--text-main) !important;
-        }
-
-        .prose blockquote {
-            color: var(--text-muted) !important;
-            border-left-color: var(--border) !important;
-        }
-
-        /* Fix elements with text-ide-text-color class */
-        .text-ide-text-color {
-            color: var(--text-main) !important;
-        }
-
-        .text-ide-editor-color {
-            color: var(--text-main) !important;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
     <header class="header">
         <h1>
             <span id="titleText">Antigravity Web</span>
-            <span id="workspaceIndicator"
-                style="font-size:12px; color:var(--text-muted); margin-left:8px; font-weight:400;"></span>
+            <span id="workspaceIndicator" class="workspace-indicator-text"></span>
         </h1>
 
         <div class="header-controls">
             <button class="header-btn" id="workspaceBtn" title="Switch Workspace">
-                <svg viewBox="0 0 180 180" fill="none">
-                    <path
-                        d="M144.248 149.062c7.5 5.626 18.75 1.876 8.437-8.437-30.937-30-24.375-112.5-62.812-112.5-38.438 0-31.875 82.5-62.813 112.5-11.25 11.25.938 14.063 8.438 8.437 29.062-19.687 27.187-54.375 54.375-54.375 27.187 0 25.312 34.688 54.375 54.375Z"
-                        fill="currentColor" />
+                <svg class="icon">
+                    <use href="icons.svg#icon-workspace" />
                 </svg>
             </button>
             <button class="header-btn" id="addBtn" aria-label="Add">
-                <svg viewBox="0 0 24 24">
-                    <path d="M12 5v14M5 12h14" />
+                <svg class="icon">
+                    <use href="icons.svg#icon-plus" />
                 </svg>
             </button>
             <button class="header-btn" id="historyBtn" title="Conversation History">
-                <svg viewBox="0 0 24 24" fill="none" class="w-5 h-5" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9 0 0 0-6.74 2.74L3 8"></path>
-                    <path d="M3 3v5h5"></path>
-                    <path d="M12 7v5l4 2"></path>
+                <svg class="icon">
+                    <use href="icons.svg#icon-history" />
                 </svg>
             </button>
             <button class="header-btn" id="moreBtn" aria-label="More">
-                <svg viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="1" />
-                    <circle cx="19" cy="12" r="1" />
-                    <circle cx="5" cy="12" r="1" />
+                <svg class="icon">
+                    <use href="icons.svg#icon-more" />
                 </svg>
             </button>
             <button class="header-btn" id="closeBtn" aria-label="Close">
-                <svg viewBox="0 0 24 24">
-                    <path d="M18 6L6 18M6 6l12 12" />
+                <svg class="icon">
+                    <use href="icons.svg#icon-close" />
                 </svg>
             </button>
         </div>
@@ -846,49 +65,15 @@
 
     <!-- Scroll to Bottom FAB -->
     <button class="fab" id="scrollToBottom" aria-label="Scroll to bottom">
-        <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M19 12l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" />
+        <svg class="icon">
+            <use href="icons.svg#icon-scroll-down" />
         </svg>
     </button>
-
-    <!-- Quick Actions (Hidden but functional via JS if needed) -->
-    <div class="quick-actions" style="display: none;">
-        <div class="action-chip" onclick="quickAction('Continue')">Continue</div>
-    </div>
 
     <!-- Input Section -->
     <div class="input-section">
         <div class="thinking-indicator" id="thinkingIndicator" style="display: none;">
             Thinking..
-        </div>
-
-        <!-- Action Row (Hidden for now as they are not functional) -->
-        <div style="display: none; gap: 12px; margin-bottom: 8px;">
-            <button class="header-btn" style="padding:0; color:var(--text-muted);">
-                <svg viewBox="0 0 24 24" style="width:20px; height:20px;">
-                    <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2z" />
-                </svg>
-            </button>
-            <button class="header-btn" style="padding:0; color:var(--text-muted);">
-                <svg viewBox="0 0 24 24" style="width:20px; height:20px;">
-                    <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z" />
-                </svg>
-            </button>
-            <button class="header-btn" style="padding:0; color:var(--accent);">
-                <svg viewBox="0 0 24 24" style="width:20px; height:20px;">
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="M21 21l-4.35-4.35" />
-                </svg>
-            </button>
-
-            <button id="reviewChangesBtn" aria-label="Review Changes"
-                style="margin-left: auto; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); color: #60a5fa; font-size: 13px; padding: 6px 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                <svg viewBox="0 0 24 24"
-                    style="width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2.5;">
-                    <path d="M20 6L9 17l-5-5" />
-                </svg>
-                Review Changes
-            </button>
         </div>
 
         <div class="input-container">
@@ -898,49 +83,42 @@
             <div class="input-bottom-bar">
                 <div class="input-left-tools">
                     <button class="tool-btn" id="plusBtn">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M12 5v14M5 12h14" />
+                        <svg class="icon">
+                            <use href="icons.svg#icon-plus" />
                         </svg>
                     </button>
 
                     <button class="pill-btn" id="modeBtn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        <svg class="icon" style="width:14px; height:14px;">
+                            <use href="icons.svg#icon-mode" />
                         </svg>
                         <span id="modeText">Planning</span>
-                        <svg viewBox="0 0 24 24" style="width:12px; height:12px;">
-                            <path d="M7 10l5 5 5-5" />
+                        <svg class="icon" style="width:12px; height:12px;">
+                            <use href="icons.svg#icon-chevron-down" />
                         </svg>
                     </button>
 
                     <button class="pill-btn" id="modelBtn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <circle cx="12" cy="12" r="10" />
-                            <path d="M12 16v-4M12 8h.01" />
+                        <svg class="icon" style="width:14px; height:14px;">
+                            <use href="icons.svg#icon-model" />
                         </svg>
                         <span id="modelText">Gemini 3 Pro (High)...</span>
-                        <svg viewBox="0 0 24 24" style="width:12px; height:12px;">
-                            <path d="M7 10l5 5 5-5" />
+                        <svg class="icon" style="width:12px; height:12px;">
+                            <use href="icons.svg#icon-chevron-down" />
                         </svg>
                     </button>
                 </div>
 
                 <div class="input-right-tools">
                     <button class="tool-btn" id="agqBtn" aria-label="Model Quotas">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path
-                                d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-                            <path
-                                d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-                            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-                            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+                        <svg class="icon">
+                            <use href="icons.svg#icon-quota" />
                         </svg>
                     </button>
                     <div class="stop-gen-btn" id="stopBtn"></div>
                     <button class="tool-btn" id="sendBtn" style="color:var(--text-main);">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"
-                                style="fill: none; stroke: currentColor; stroke-width: 2;" />
+                        <svg class="icon">
+                            <use href="icons.svg#icon-send" />
                         </svg>
                     </button>
                 </div>
